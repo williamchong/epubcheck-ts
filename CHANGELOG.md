@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-08-06
+
+### Added
+
+- **Line numbers on package document messages** — the OPF is parsed with regexes, and the model types previously had nowhere to record a position, so every package-document message pointed at a file with no line. Section parsing now tracks each section's offset in the original source and resolves it through a line index (`src/util/location.ts`); comments are blanked rather than stripped so offsets stay aligned. `ManifestItem`, `SpineItemRef`, `DCElement`, `MetaElement` and `LinkElement` each carry the line they were declared on. Line coverage across the 758-fixture corpus rose from 34.2% to 52.4%; overall 62.9% of messages now carry a line, and 87.2% of those match Java's line.
+- **Real-world EPUB regression test** — `npm run fetch:real-epubs` caches a small corpus of published EPUBs (git-ignored) that `test/integration/real-world.test.ts` validates against, catching regressions the synthetic spec fixtures cannot.
+
+### Fixed
+
+- **Publication version is now resolved before validation runs**, mirroring Java's `OCFChecker.check()` and `PackageDocumentPeekerHandler`. Three defects, all from the pipeline running against a publication it cannot meaningfully validate:
+  - No abort when `container.xml` declares no Package Document. Java stops after `RSC-003`; we continued into `OPFValidator` and `SchemaValidator`, adding a spurious FATAL `OPF-002` and an `RSC-005`. `OPF-002` still fires for a *declared but missing* OPF, a different case Java does report.
+  - No abort when the `package` element declares no `version`. `parseOPF` silently defaulted to 3.0, so an OEBPS 1.2 package was validated as EPUB 3 — 1 Java message became 12.
+  - Version-dependent container checks used the *requested* version (default 3.3) rather than the declared one. `PKG-013` therefore only fired when the caller passed `{version: '2.0'}` explicitly — which every EPUB 2 test does, hiding the bug from the suite while real CLI users hit it. The multiple-renditions branch (`RSC-019`/`RSC-017`) had the inverse fault and fired when it should not.
+- **`OPF-014` no longer reported in single-file validation modes** — `checkSingleFile` never sets `context.packageDocument`, so the properties comparison saw every detected feature as undeclared, emitting a spurious ERROR that also flipped the CLI exit code. Measured against EPUBCheck 5.3.0 over Java's standalone fixtures, 92 of 741 `--mode xhtml` files and 3 of 52 `--mode svg` files emitted a bogus `OPF-014`; Java emits none. Now guarded by a `hasContainer()` predicate, mirroring Java's `context.container.isPresent()` in `OPSHandler30.checkProperties`.
+- **`OPF-097` points at the manifest declaration** rather than the resource file, matching where Java points.
+
+### Changed
+
+- **Parity claims replaced with measured figures** — the README claimed "~99% feature parity" and the CLI claimed "~93%", neither of which was measured; both were the ported-test pass rate, which cannot see a check firing when Java stays silent, nor missing location data. Both now report figures from running EPUBCheck 5.3.0 and this library over identical inputs and diffing the emitted message IDs: 95.3% verdict / 85.5% error-warning-ID agreement over 758 packaged fixtures, 97.7% verdict / 92.9% exact over 1286 standalone-mode inputs, and 5/5 verdict agreement on real-world books. `PROJECT_STATUS.md` gains a Measured Parity section recording the method, baseline version, and corpus caveats.
+
 ## [0.6.2] - 2026-06-21
 
 ### Fixed
@@ -667,7 +687,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - No media overlays validation
 - No script detection/validation
 
-[Unreleased]: https://github.com/likecoin/epubcheck-ts/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/likecoin/epubcheck-ts/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/likecoin/epubcheck-ts/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/likecoin/epubcheck-ts/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/likecoin/epubcheck-ts/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/likecoin/epubcheck-ts/compare/v0.5.1...v0.6.0
