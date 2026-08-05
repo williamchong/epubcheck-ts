@@ -11,6 +11,7 @@ export default tseslint.config(
       'examples/',
       'bin/**/*.js',
       'docs/html/',
+      '.claude/',
     ],
   },
   eslint.configs.recommended,

@@ -25,7 +25,10 @@ test/fixtures/real/
 # IDE
 .idea/
 .vscode/
-.claude/
+# .claude/* rather than .claude/ so the skills negation below can take effect —
+# git will not re-include anything under an excluded directory.
+.claude/*
+!.claude/skills/
 *.swp
 *.swo
 *.sublime-*
