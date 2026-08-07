@@ -4,7 +4,7 @@
 
 import { type Atrule, type CssNode, type Declaration, type Url, parse, walk } from 'css-tree';
 import { MessageId, pushMessage } from '../messages/index.js';
-import { resolveManifestHref } from '../references/url.js';
+import { resolveManifestHref, tryDecodeUriComponent } from '../references/url.js';
 import type { ValidationContext } from '../types.js';
 import { dirname, resolvePath } from '../util/path.js';
 
@@ -501,7 +501,11 @@ export class CSSValidator {
     if (packageDoc) {
       // resolvePath yields a container-relative path; manifest hrefs are
       // relative to the OPF, so they have to be lifted before comparing.
-      const resolvedPath = resolvePath(resourcePath, fontUrl);
+      // resolveManifestHref decodes and NFC-normalizes its side, so this one
+      // has to as well or a percent-encoded url() never matches.
+      const resolvedPath = resolvePath(resourcePath, tryDecodeUriComponent(fontUrl)).normalize(
+        'NFC',
+      );
       const opfDir = dirname(context.opfPath ?? '');
 
       const manifestItem = packageDoc.manifest.find(

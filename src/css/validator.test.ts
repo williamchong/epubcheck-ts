@@ -217,6 +217,13 @@ describe('CSSValidator', () => {
       expect(context.messages.filter((m) => m.id === 'CSS-007')).toHaveLength(1);
     });
 
+    it('should match a percent-encoded url() against the decoded manifest href (CSS-007)', () => {
+      context = withManifest('OEBPS/content.opf', 'fonts/my font.woff');
+      const css = '@font-face { font-family: "T"; src: url("../fonts/my%20font.woff"); }';
+      validator.validate(context, css, 'OEBPS/css/main.css');
+      expect(context.messages.filter((m) => m.id === 'CSS-007')).toHaveLength(1);
+    });
+
     it('should not match a manifest href that only coincides before resolution', () => {
       context = withManifest('OEBPS/content.opf', 'OEBPS/fonts/custom.woff');
       const css = '@font-face { font-family: "T"; src: url("../fonts/custom.woff"); }';
