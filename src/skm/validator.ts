@@ -8,7 +8,8 @@
 import type { XmlDocument, XmlElement } from 'libxml2-wasm';
 import { getXmlDocument } from '../util/xml-engine.js';
 import { MessageId, pushMessage } from '../messages/index.js';
-import { resolvePath, tryDecodeUriComponent } from '../opf/validator.js';
+import { tryDecodeUriComponent } from '../references/url.js';
+import { resolvePath } from '../util/path.js';
 import { ReferenceType, type Reference } from '../references/types.js';
 import { parseURL } from '../references/url.js';
 import type { ReferenceValidator } from '../references/validator.js';

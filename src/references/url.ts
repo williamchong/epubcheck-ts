@@ -126,3 +126,17 @@ export function resolveManifestHref(opfDir: string, href: string): string {
     return path.normalize('NFC');
   }
 }
+
+/**
+ * Safely decode a URI component, returning the original if decoding fails.
+ *
+ * This is needed because OPF hrefs may be URL-encoded (e.g., "table%20us%202.png")
+ * but the actual file paths in the ZIP are not encoded (e.g., "table us 2.png").
+ */
+export function tryDecodeUriComponent(encoded: string): string {
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}

@@ -7,7 +7,8 @@ import { getXmlDocument } from '../util/xml-engine.js';
 import { EPUB_SSV_ALL } from '../vocab/epub-ssv.js';
 import { MessageId, pushMessage } from '../messages/index.js';
 import type { ManifestItem } from '../opf/types.js';
-import { tryDecodeUriComponent } from '../opf/validator.js';
+import { tryDecodeUriComponent } from '../references/url.js';
+import { dirname } from '../util/path.js';
 import { isRemoteURL } from '../references/url.js';
 import type { ValidationContext } from '../types.js';
 import { parseSmilClock } from './clock.js';
@@ -325,7 +326,7 @@ export class SMILValidator {
     if (decoded.startsWith('/') || /^[a-zA-Z]+:/.test(decoded)) {
       return decoded.normalize('NFC');
     }
-    const baseDir = basePath.includes('/') ? basePath.substring(0, basePath.lastIndexOf('/')) : '';
+    const baseDir = dirname(basePath);
     if (!baseDir) return decoded.normalize('NFC');
     const segments = `${baseDir}/${decoded}`.split('/');
     const resolved: string[] = [];

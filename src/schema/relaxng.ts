@@ -1,5 +1,6 @@
 import { MessageId, pushMessage } from '../messages/index.js';
 import type { ValidationMessage } from '../types.js';
+import { basename } from '../util/path.js';
 import { getSchema, getSchemaNames } from './schemas.generated.js';
 import { BaseSchemaValidator } from './validator.js';
 
@@ -10,7 +11,7 @@ import { BaseSchemaValidator } from './validator.js';
  * then falls back to fetch for custom schemas provided by URL.
  */
 async function loadSchema(schemaPath: string): Promise<string> {
-  const filename = schemaPath.split('/').pop() ?? schemaPath;
+  const filename = basename(schemaPath);
 
   // Try bundled schemas first (works in all environments)
   const bundled = getSchema(filename);

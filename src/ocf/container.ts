@@ -1,6 +1,7 @@
 import { MessageId, pushMessage } from '../messages/index.js';
 import { parseAttributes, peekOpfVersion, stripXmlComments } from '../opf/parser.js';
 import type { ValidationContext, ValidationMessage } from '../types.js';
+import { basename } from '../util/path.js';
 
 export const OPF_MEDIA_TYPE = 'application/oebps-package+xml';
 
@@ -226,7 +227,7 @@ const DISALLOWED_ASCII = new Set([0x22, 0x2a, 0x3a, 0x3c, 0x3e, 0x3f, 0x5c, 0x7c
  * whitespace (PKG-010), trailing period (PKG-011), and non-ASCII (PKG-012).
  */
 export function validateFilenameCharacters(path: string, messages: ValidationMessage[]): void {
-  const filename = path.includes('/') ? (path.split('/').pop() ?? path) : path;
+  const filename = basename(path);
 
   if (filename === '' || filename === '.' || filename === '..') {
     pushMessage(messages, {
