@@ -1,459 +1,245 @@
 # EPUBCheck-TS Project Status
 
-Quick reference for implementation progress vs Java EPUBCheck.
+Quick reference for implementation progress vs Java EPUBCheck. This is the **only** place for volatile status (test counts, completion %, known issues). Per-fix history lives in `git log`, not here.
 
 ## Overview
 
-| Category | Completion | Status |
-|----------|------------|--------|
-| OCF Validation | ~90% | 🟢 URL leaking, UTF-8, spaces, forbidden chars all done |
-| OPF Validation | ~85% | 🟢 Link elements, self-reference, remote resources done |
-| Content (XHTML/SVG) | ~75% | 🟢 CSS url() references, @import validation done |
-| CSS Validation | ~70% | 🟢 url() extraction from declarations, @font-face src |
-| Navigation (nav/NCX) | ~40% | 🟡 Basic nav done, NCX strong |
-| Schema Validation | ~50% | 🟡 RelaxNG for OPF/container; XHTML/SVG disabled (libxml2 limitation) |
-| Media Overlays | 0% | ❌ Not implemented |
-| Accessibility | ~30% | 🟡 Basic checks only (ACC-004/005/009/011) |
-| Cross-reference | ~80% | 🟢 URL leaking, CSS references, link elements done |
+Per-component estimates. For measured agreement with Java, see [Measured Parity](#measured-parity-vs-java-epubcheck) below — that is the number to quote.
 
-**Overall: ~70% complete (505 tests passing, 48 skipped)**
+| Category | Completion | Notes |
+|----------|------------|-------|
+| OCF Validation | ~92% | URL leaking, UTF-8, spaces, forbidden chars, encryption/signatures schema |
+| OPF Validation | ~92% | Schematron-equivalent checks, refines cycles, duplicate IDs, OPF-090 preferred media types |
+| Content (XHTML/SVG) | ~93% | CSS url()/@import, SVG use/epub:type, picture, lang mismatch, microdata, content-model checks |
+| CSS Validation | ~85% | url()/@font-face/@import extraction, encoding detection, alt style tags, OPF-018 |
+| Navigation (nav/NCX) | ~95% | Content model, landmarks, labels, reading order, nested-ol |
+| Schema Validation | ~55% | RelaxNG for OPF/container/encryption/signatures; XHTML/SVG disabled (libxml2 limitation) |
+| Media Overlays | ~70% | SMIL structure/timing/audio, cross-ref, reading order, OPF metadata, MED-016 duration sum |
+| Accessibility | ~71% | 12/17 ACC checks (content + OPF a11y metadata) |
+| Cross-reference | ~92% | URL leaking, CSS/link/embed refs, exempt resources, cross-document feature checks |
+
+**100% Java scenario import**: every Java EPUBCheck feature file (core EPUB 3, EPUB 2, profile extensions) is ported. The 14 skipped tests form a discoverable backlog — each has an inline `it.skip` annotation naming the specific blocker.
+
+---
+
+## Measured Parity vs Java EPUBCheck
+
+Test pass rate measures whether ported scenarios still pass; it cannot see a check that fires when Java stays silent, nor missing location data. These figures come from running both engines over identical inputs and diffing the emitted message IDs. **Java is the oracle.**
+
+Baseline: **EPUBCheck 5.3.0**, measured 2026-08-07 by `npm run parity`. Every row below is reproducible with that command; none are estimates.
+
+### Packaged EPUBs (`test/fixtures/`, n=763)
+
+| Metric | Agreement | |
+|---|---|---|
+| **Valid/invalid verdict** | **96.7%** | 738/763 |
+| Message-ID set, errors + warnings only | 88.5% | 675/763 |
+| Message-ID set, all severities | 74.0% | 565/763 |
+| Exact match (IDs + counts, all severities) | 67.4% | 514/763 |
+
+Severity assignment agrees on **100%** of paired messages (791/791) — zero mismatches across the corpus.
+
+### Standalone single-file modes (Java's own fixtures, n=1286)
+
+| Mode | n | Exact | Verdict |
+|---|---:|---:|---:|
+| `--mode opf` | 489 | 93.7% | 97.8% |
+| `--mode xhtml` | 745 | 95.6% | 97.9% |
+| `--mode svg` | 52 | 88.5% | 92.3% |
+| **Total** | **1286** | **94.6%** | **97.6%** |
+
+Regenerate with `npm run parity:standalone`, which needs `../epubcheck` checked out as a sibling. The corpus is every `.opf`/`.xhtml`/`.svg` under `epub3/`, excluding `test-files-unused/`. Severity agrees on 100% of paired messages; 61.9% of messages carry a line (Java: 97.1%), and where both engines locate the same message, 79.0% of lines match.
+
+### Real-world EPUBs (n=5)
+
+5/5 verdict agreement; 4/5 byte-identical message sets. The fifth differs only in report shape (see USAGE dedup under Known Issues). Guarded by `test/integration/real-world.test.ts`.
+
+### Message locations
+
+**73.6%** of messages carry a line number (Java: 81.6%), measured across all severities. Where both engines report the same ID on the same file, **88.4%** of line numbers match exactly; the rest are attribution or convention differences, not arithmetic. Messages still lacking a line come mostly from `RSC-005` rules and from document-level checks where nothing has a position — `OPF-003` has no line in Java either.
+
+Java encodes "no line" as `-1`, not as a missing field. Counting that as a location pins the Java figure at exactly 100%, which is how the harness's first run was caught being wrong; `scripts/parity/engine.ts` normalizes it. A location metric that cannot fall below 100% is not measuring anything.
+
+### Reading these numbers
+
+- **Verdict agreement** is what a user feels: do both tools call the same file valid or invalid?
+- **Message-ID agreement** is stricter: do they report the *same* problems? It ignores how many times each ID fired.
+- **Exact match** additionally requires identical counts, so it is depressed by the USAGE dedup difference below and is the least meaningful of the three. A fixture where this port reports `RSC-005` twice and Java once agrees on message-ID and disagrees on exact match — which is most of the ~21-point gap between those rows.
+
+### Method
+
+Every figure above is produced by the checked-in harness in `scripts/parity/` — not by hand:
+
+```bash
+npm run parity              # packaged corpus: verdict, ID, severity and location figures
+npm run parity:standalone   # the single-file table (needs ../epubcheck)
+npm run parity:check        # fail if any fixture regressed against the committed baseline
+npm run parity:update       # rewrite the baseline after an intended change
+```
+
+Both engines run over the same bytes and the message-ID multisets are diffed per fixture, after normalizing Java's `HTM_060b` form to `HTM-060b`. Java is invoked with `-u` always and the extra severities are filtered at comparison time — verified across 24 fixtures spanning the corpus, `-u` leaves the non-USAGE message set byte-identical, so one cached answer serves both the default and `--usage` comparisons.
+
+Java's answers are committed under `test/parity/java/`, keyed on a hash of its version, the fixture path, the argv **and the fixture's bytes**. That is what makes a warm run seconds instead of ~11 minutes, and what makes `npm run parity:check` runnable in CI with no JVM. It is also a correctness property, not just a speed one: an earlier throwaway harness keyed on path alone, which would have served pre-`4b855e9` results for the rewritten placeholder images and reported an improvement that never happened.
+
+Per-fixture state lives in `test/parity/baseline.json`, so a change that fixes four fixtures and breaks three shows up as both, rather than as a flat percentage that barely moves.
+
+Three corpus caveats worth knowing before trusting a delta:
+- Roughly half of `test/fixtures/` are synthetic EPUBs wrapping Java's *standalone* fixtures, with fabricated stub assets. Java flags that scaffolding, which inflates apparent gaps; the standalone table above avoids this entirely. This produced all 20 of the former `PKG-021` gaps — `build-fixtures.sh` wrote a 22-byte header-only JPEG and a bare 8-byte PNG signature, neither carrying the dimensions `ImageIO` needs. Both are now real 1×1 images in `test/fixtures/assets/`, and `repair-stub-images.sh` fixed the 22 EPUBs built before that change. When adding a fixture asset, make it a *complete* file of its type, not just magic bytes.
+- Java auto-detects the publication version; a differential run must not pass an explicit version, or it will mask version-gating bugs.
+- Standalone fixtures must be addressed by **basename**, with the bytes read from wherever they live. Passing a path-qualified name makes every sibling `href` resolve outside the notional container, so `RSC-026` fires on nearly every OPF and the mode's exact-match score collapses to near zero. That is a measurement artifact, not a regression. `scripts/parity/corpus.ts` does this on both sides; it is the single easiest way to get these numbers catastrophically wrong.
+
+The standalone corpus is every `.opf`/`.xhtml`/`.svg` under `../epubcheck/src/test/resources/epub3/`, excluding `test-files-unused/` — fixtures Java's own suite stopped referencing. That is 496/757/52 minus 7/12/0, giving the 489 / 745 / 52 above.
 
 ---
 
 ## Test Coverage
 
-### Current Test Suite
+### Current Suite
 
 | Category | Tests | Passed | Skipped |
 |----------|-------|--------|---------|
-| **Unit Tests** | 398 | 380 | 18 |
-| **Integration Tests** | 155 | 125 | 30 |
-| **Total** | **553** | **505** | **48** |
+| Unit Tests | 482 | 480 | 2 |
+| Integration Tests | 947 | 935 | 12 |
+| **Total** | **1429** | **1415** | **14** |
+
+Unit tests include 17 for the parity harness itself (`test/unit/parity.test.ts`) — cache keying, the ID-set vs ID-count distinction, and the location metric. The harness gates CI, so a silent bug there would not make a check wrong; it would make every check unverifiable while still printing a confident percentage.
+
+Plus a separate packaging regression suite (`npm run test:packaging`, 3 tests) validating built artifacts; runs in CI and on prepublish.
 
 ### Integration Test Files
 
 ```
 test/integration/
-├── epub.test.ts                 # 4 tests  (4 pass, 0 skip) - Basic EPUB validation
-├── ocf.integration.test.ts      # 47 tests (37 pass, 10 skip) - OCF/ZIP/container
-├── opf.integration.test.ts      # 51 tests (39 pass, 12 skip) - Package document
-├── content.integration.test.ts  # 31 tests (27 pass, 4 skip) - XHTML/CSS/SVG
-├── nav.integration.test.ts      # 12 tests (10 pass, 2 skip)  - Navigation
-└── resources.integration.test.ts # 10 tests (8 pass, 2 skip)  - Remote resources
+├── epub.test.ts                      #   4 tests  (  4 pass,   0 skip) - Basic sanity
+├── conformance.integration.test.ts   #  11 tests  ( 11 pass,   0 skip) - Minimal/conformance/media-types
+├── ocf.integration.test.ts           #  56 tests  ( 52 pass,   4 skip) - OCF/ZIP/container
+├── opf.integration.test.ts           # 173 tests  (173 pass,   0 skip) - Package document + D-vocabularies
+├── content.integration.test.ts       # 214 tests  (208 pass,   6 skip) - XHTML/CSS/SVG
+├── nav.integration.test.ts           #  38 tests  ( 38 pass,   0 skip) - Navigation
+├── resources.integration.test.ts     # 110 tests  (109 pass,   1 skip) - Resources/fallbacks
+├── layout.integration.test.ts        #  52 tests  ( 52 pass,   0 skip) - Layout/viewport/FXL
+├── mediaoverlays.integration.test.ts #  50 tests  ( 50 pass,   0 skip) - Media overlays/SMIL
+├── epub2.integration.test.ts         #  99 tests  ( 98 pass,   1 skip) - EPUB 2 (all 7 Java features)
+├── profiles.integration.test.ts      # 125 tests  (125 pass,   0 skip) - 9 profile extensions
+├── single-file.integration.test.ts   #  10 tests  ( 10 pass,   0 skip) - --mode xhtml/svg container guard
+└── real-world.test.ts                #   5 tests  (  5 pass,   0 skip) - Public-domain books
 ```
 
-**Note**: Integration tests imported from Java EPUBCheck test suite (`../epubcheck/src/test/resources/epub3/`).
+`real-world.test.ts` runs against real published EPUBs rather than spec fixtures. The books are fetched on demand by `npm run fetch:real-epubs` into a gitignored cache; the tests skip themselves when it is absent, so offline runs and CI are unaffected.
+
+Integration tests imported from the Java EPUBCheck test suite (`../epubcheck/src/test/resources/epub3/`).
 
 ### Test Fixtures
 
-```
-test/fixtures/
-├── valid/                 # 48 valid EPUBs
-├── invalid/
-│   ├── ocf/              # 33 OCF error cases
-│   ├── opf/              # 39 OPF error cases
-│   ├── content/          # 21 content error cases
-│   └── nav/              # 4 navigation error cases
-└── warnings/             # 9 warning cases
-```
+608 EPUB fixtures imported from Java EPUBCheck: `valid/` (257), `invalid/ocf` (37), `invalid/opf` (113), `invalid/content` (137), `invalid/layout` (12), `invalid/nav` (18), `warnings/` (30).
 
-**Total**: 154 EPUB test fixtures (imported from Java EPUBCheck)
+### Skipped Tests (14)
 
-### Quality: ⭐⭐⭐⭐ (4/5) for implemented features
+All remaining skips are structural dependency limits, not missing validator work. Search `it.skip` in `test/` for the per-test annotation.
 
-**Strong areas:**
-- NCX validation (24 tests - better than Java's 8 scenarios)
-- CSS validation (57 tests - better granularity than Java's 19)
-- Cross-reference validation (48 tests)
-- Fast execution (~700ms vs Java's integration-heavy suite)
-
-**Critical gaps:**
-- ❌ **ARIA validation** - No role/attribute checks (Java has dozens)
-- ❌ **ID/IDREF validation** - No duplicate detection
-- ❌ **DOCTYPE validation** - No obsolete identifier checks
-- ❌ **Entity validation** - No external entity checks
-- ❌ **Base URL** - No xml:base or HTML base support
-- ❌ **Advanced accessibility** - Only 30% of Java coverage
-- ❌ **Media overlays** - Not implemented
-
-### Skipped Tests
-
-**Unit tests (13)** - Various reasons:
-- **libxml2-wasm XPath limitations (3)**:
-  - `test/unit/content/validator.test.ts:257` - OPF-014 inline event handlers
-  - `test/unit/content/validator.test.ts:514` - CSS-005 conflicting stylesheets
-  - `test/unit/content/validator.test.ts:655` - OPF-088 unknown epub:type prefix
-- **Messages suppressed in Java EPUBCheck (10)**:
-  - NCX-002 (2 tests) - Invalid NCX reference
-  - NCX-003 (2 tests) - NavPoint missing text content
-  - NAV-002 (3 tests) - Missing toc nav ol element
-  - ACC-004 (1 test) - Anchor element must have text
-  - ACC-005 (1 test) - Image missing alt attribute
-  - HTM-012 (1 test) - Unescaped ampersands
-
-**Integration tests (7)** - Library limitations:
-- **CSS-008**: CSS syntax error detection (1 test) - css-tree is forgiving, parses invalid CSS successfully
-- **OPF-060**: Duplicate ZIP entry detection (1 test) - fflate deduplicates entries when unzipping
-- **Unicode NFKC normalization** (1 test) - Requires compatibility normalization, not implemented
-- **Unicode NFC normalization for diacritics** (1 test) - Requires composed/precomposed char comparison
-- **Unicode NFC normalization duplicate** (1 test) - Already handled, test expects NFKC
-- **Unit tests (3)** - libxml2-wasm XPath with namespaced attributes
+- **Unit (2)** — libxml2-wasm XPath can't match unprefixed namespaced attributes (OPF-014 inline event handlers, OPF-088 unknown epub:type prefix).
+- **Core EPUB 3 integration (11)** — library limits (RelaxNG foreignObject/SVG title, css-tree forgiveness, fflate ZIP dedup), pre-existing gaps (SMIL clock strictness, epub:type vocab), unimplemented (OPF-073, PKG-016, `--mode svg`).
+- **EPUB 2 integration (1)** — wrong-namespace per-element error count (libxml2-wasm vs Jing reporting shape).
 
 ---
 
-## What Works Well
+## Implementation Status
 
-### ✅ Fully Implemented
-- **Mimetype validation** (PKG-005/006/007)
-- **Container.xml** (RSC-002/005, PKG-004)
-- **Package attributes** (OPF-001/030/048/099 - self-referencing manifest)
-- **Required metadata** (OPF-015/016/017)
-- **Manifest validation** (RSC-001, OPF-012/013/014/074/091)
-- **Spine validation** (OPF-033/034/043/049/050)
-- **Fallback chains** (OPF-040/045)
-- **Collections** (OPF-071-084)
-- **NCX validation** (NCX-001/002/003/006)
-- **CSS validation** (@font-face, @import, url(), position, forbidden properties CSS-001)
-- **Navigation** (NAV-001/002/010)
-- **Link element validation** (RSC-007w warning for missing resources, OPF-093 missing media-type)
-- **URL leaking detection** (RSC-026 for path-absolute URLs)
-- **Scripted property** (OPF-014)
-- **MathML/SVG properties** (OPF-014)
-- **Remote resources property** (OPF-014)
-- **Basic accessibility** (ACC-009/011 active; ACC-004/005 suppressed in Java)
-- **Cross-references** (RSC-006/007/008/009/010/011/012/013/014/020/026/027/028/029/031)
-- **Filename validation** (PKG-009/010/011/027)
-- **Duplicate filename detection** (OPF-060) - Unicode NFC normalization, case folding
-- **Non-UTF8 filename detection** (PKG-027)
-- **Cite attribute validation** (RSC-007 for blockquote/q/ins/del cite attributes)
-- **Unreferenced resources** (OPF-097)
-- **Percent-encoded URLs** - Proper handling of URL-encoded paths
+### ✅ Implemented (highlights)
+
+Mimetype (PKG-005/006/007), container.xml, package attributes, required metadata, manifest/spine validation, rendition properties + FXL detection, viewport meta (HTM-046/047/056/057/059/060), SVG viewBox (HTM-048), fallback chains, collections (OPF-071-084), NCX, CSS (@font-face/@import/url()/CSS-001), navigation content model + landmarks, OPF Schematron-equivalent (duplicate IDs/refines/cycles/multiplicity), link element validation, D-vocabulary + media-overlay vocab, URL leaking (RSC-026), scripted/MathML/SVG/remote/switch properties (OPF-014), cross-references (RSC-006…033), filename validation (PKG-009/010/011/027), duplicate filename detection (OPF-060), font obfuscation (PKG-026), foreign resource fallback (RSC-032), epub:type vocabulary (OPF-086b/087/088), inline CSS (CSS-008), BCP 47 language tags, image magic numbers (MED-004/OPF-029/PKG-022), accessibility checks (ACC-009/011 active; others suppressed by default), SMIL media overlays + single-file `--mode mo`, cross-document feature checks (NAV/HTM/OPF), single-file modes (`exp/opf/xhtml/nav/mo`).
 
 ### 🟡 Partially Implemented
-- **Schema validation** - RelaxNG for OPF/container works; XHTML/SVG RelaxNG disabled (libxml2-wasm doesn't support complex patterns)
-- **Content validation** - Core structure good, missing ARIA/DOCTYPE/entities; Schematron validation works
-- **Image validation** - MED-001/OPF-051 work, no format/size checks
+
+- **Schema validation** — RelaxNG for OPF/container works; XHTML/SVG RelaxNG disabled (libxml2-wasm can't handle complex recursive patterns); content documents are checked by hand-ported rules in `src/content/validator.ts` instead.
+- **Accessibility** — 12/17 ACC checks; remaining 5 (ACC-008/013/015/016/017) are suppressed by default.
+- **Media validation** — magic-number checks done; deep format parsing not implemented.
+- **Media overlays** — structure/timing/metadata done (~70%); SMIL clock parser strictness and epub:type vocab pending.
 
 ### ❌ Not Implemented
-- Media overlays validation
-- Encryption.xml validation
-- Signatures.xml validation
-- Metadata.xml (multiple renditions)
-- Advanced accessibility (WCAG 2.0 comprehensive)
-- ARIA roles and attributes
-- DOCTYPE obsolete identifiers
-- External entity validation
-- Base URL handling (xml:base, HTML base)
-- Media format validation (image magic numbers, corrupt files)
+
+Metadata.xml (multiple renditions), full ARIA roles/attributes, external entity validation, deep media-format validation, the 5 suppressed ACC checks.
 
 ---
 
-## Known Issues
+## Known Issues (dependency limits)
 
-1. **fflate ZIP deduplication** - The fflate library automatically deduplicates ZIP entries when unzipping, making it impossible to detect duplicate entries (affects 1 skipped test)
-2. **css-tree syntax error handling** - The CSS parser is designed to be forgiving and successfully parses many invalid CSS snippets, making syntax error detection difficult (affects 1 skipped test)
-3. **libxml2-wasm XPath limitations** - Queries for namespaced attributes don't work properly (affects 3 skipped unit tests)
-4. **libxml2-wasm RelaxNG limitations** - Cannot parse XHTML/SVG schemas due to complex recursive patterns (`oneOrMore//interleave//attribute`). Java uses Jing which handles these. XHTML/SVG RelaxNG validation disabled; content validated via Schematron instead.
-5. **Schematron XSLT 2.0** - Some XSLT 2.0 functions not fully supported by fontoxpath
-6. **RelaxNG deprecation** - libxml2 plans to remove RelaxNG support in future
-7. **Unicode NFKC normalization** - Not implemented (affects 1 skipped test)
-
----
-
-## E2E Test Coverage vs Java
-
-### Current Coverage
-
-| Java Category | Java Scenarios | TS Ported | TS Passing | Coverage |
-|---------------|----------------|-----------|------------|----------|
-| 00-minimal | 5 | 4 | 4 | 80% |
-| 03-resources | 113 | 15 | ~10 | 9% |
-| 04-ocf | 61 | 33 | 21 | 34% |
-| 05-package-document | 121 | 18 | 13 | 11% |
-| 06-content-document | 215 | 11 | 8 | 4% |
-| 07-navigation-document | 40 | 5 | 5 | 12.5% |
-| 08-layout | 51 | 0 | 0 | 0% |
-| 09-media-overlays | 51 | 0 | 0 | 0% |
-| D-vocabularies (ARIA) | 56 | 0 | 0 | 0% |
-| Other | 6 | 0 | 0 | 0% |
-| **Total** | **719** | **71** | **63** | **9%** |
-
-### E2E Porting Priorities
-
-**High Priority** - Core validation parity:
-1. **05-package-document** (121 scenarios) - OPF is central to validation
-2. **04-ocf** (61 scenarios) - Already 34%, finish remaining
-3. **03-resources** (113 scenarios) - Cross-reference validation
-
-**Medium Priority** - Content completeness:
-4. **06-content-document** (215 scenarios) - Largest gap, needs ARIA/DOCTYPE
-5. **07-navigation-document** (40 scenarios) - Nav validation
-6. **D-vocabularies** (56 scenarios) - ARIA roles, epub:type
-
-**Low Priority** - Specialized features:
-7. **08-layout** (51 scenarios) - Rendition/viewport
-8. **09-media-overlays** (51 scenarios) - SMIL validation (not implemented)
+1. **fflate ZIP dedup** — fflate auto-deduplicates ZIP entries, so duplicate-entry detection is impossible (1 skipped test).
+2. **css-tree forgiving parser** — successfully parses many invalid CSS snippets, making some syntax-error detection impossible (1 skipped test).
+3. **libxml2-wasm XPath** — queries for namespaced attributes don't match (2 skipped unit tests).
+4. **libxml2-wasm RelaxNG** — can't parse XHTML/SVG schemas (complex recursive patterns Jing handles); those documents are checked by hand-ported rules instead. libxml2 also plans to remove RelaxNG support in future.
+5. **No Schematron engine** — every `.sch` rule is hand-ported to TypeScript. A generic evaluator was tried (fontoxpath + slimdom) and abandoned: fontoxpath lacks the XPath 2.0 functions the EPUB schemas rely on (`matches`, `tokenize`), so it could never have reached parity. Deleted in favour of the hand-ports that already shipped.
+6. **EPUB 2 wrong-namespace count** — per-element error count differs (libxml2-wasm vs Jing reporting shape; 1 skipped test).
+7. **USAGE message dedup** — Java collapses identical USAGE messages per (id, file); TS emits one per occurrence. Cosmetic count drift for CSS-028/OPF-090/RSC-007; no semantic difference.
+8. **`PKG-009` in single-file mode** — with no container, Java resolves each manifest `href` against the document's `file:` URL, so an href that leaks above the base or is path-absolute yields a URL containing `:` and trips the OCF filename-character check. This port has no `file:` base to resolve against and stays silent. Four `--mode opf` fixtures (`ocf-url-leaking-in-opf-error`, `ocf-url-path-absolute-error`, `ocf-meta-inf-with-publication-resource-error`, `file-url-in-css-error`) therefore disagree on verdict. They previously agreed only because a false-positive `RSC-026` supplied an unrelated error; removing it exposed the real gap. Matching Java faithfully would mean emitting local absolute filesystem paths in message text.
+9. **Spurious `RSC-005` pair in `--mode opf`** — `unique-identifier-not-found-error.opf` draws two `RSC-005` errors where EPUBCheck 5.3.0 reports nothing, and the second carries an empty `message` string. The empty text suggests a libxml2 DTD-validation error surfacing without a formatted message rather than a rule of ours; not yet diagnosed. Covered by the single-document `OPF-030` test in `test/integration/epub2.integration.test.ts`, which asserts only the absence of `OPF-030` because of this.
+10. **Partial parse after a fatal XML error** — Java's SAX handler keeps whatever it read before aborting, so a package document that fails mid-file still yields `OPF-030` from the attributes read before the abort. This port's package parser is regex-based and cannot reproduce a per-element cut-off. The item model *is* matched: Java builds its items in `endElement` on `</package>`, so a parse that aborts earlier leaves an empty manifest, and OPFValidator now skips its structural checks in that case (reporting `OPF-003` against the empty manifest, as Java does). Only `OPF-030` remains, affecting `conformance-xml-malformed-error` and `conformance-xml-undeclared-namespace-error`.
 
 ---
 
-## E2E Test Porting Roadmap
+## E2E Coverage vs Java
 
-### Tests Ready to Port (Features Already Implemented)
+**100% Java scenario import complete** — every Java EPUBCheck feature file is represented; each skipped test has a specific gap annotation.
 
-The following tests from Java EPUBCheck can be added immediately without new implementation:
+This table reports how many *ported scenarios* pass, which is a different question from whether the two engines agree — a scenario ported with a subtly wrong expectation passes forever. See [Measured Parity](#measured-parity-vs-java-epubcheck) for the differential figures.
 
-#### 1. OCF Tests (04-ocf) - 16 tests ready
+| Tier | Java Scenarios | Active | Skipped | Pass Rate |
+|---|---:|---:|---:|---:|
+| Core EPUB 3 | ~726 | ~695 | 11 | ~98% |
+| EPUB 2 | 99 | 98 | 1 | 99% |
+| Profile Extensions | 125 | 125 | 0 | 100% |
+| **Total** | **~950** | **~918** | **12** | **~97%** |
 
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `ocf-obfuscation-valid.epub` | Font obfuscation | PKG-026 |
-| `ocf-obfuscation-duplicate-valid.epub` | Duplicate encryption | PKG-026 |
-| `ocf-obfuscation-not-cmt-error.epub` | Non-CMT obfuscation | PKG-026 |
-| `ocf-obfuscation-not-font-error.epub` | Non-font obfuscation | PKG-026 |
-| `ocf-encryption-content-model-error` | Encryption.xml structure | RSC-005 |
-| `ocf-encryption-unknown-valid` | Encryption info message | RSC-004 |
-| `ocf-encryption-duplicate-ids-error` | Duplicate encryption IDs | RSC-005 |
-| `ocf-signatures-content-model-error` | Signatures.xml structure | RSC-005 |
-| `ocf-filename-character-non-ascii-usage` | Non-ASCII filename info | PKG-012 |
-| `url-xhtml-cite-absolute-valid` | Absolute cite URLs | RSC-007 |
-| `url-xhtml-iframe-missing-resource-error` | Missing iframe resource | RSC-007 |
-| `url-xhtml-track-missing-resource-error` | Missing track resource | RSC-007 |
-| `ocf-container-filename-character-forbidden-error.opf` | Forbidden container chars | PKG-009 |
-| `ocf-filename-character-forbidden-in-remote-URL-valid.opf` | Forbidden chars in remote | PKG-009 |
+Core EPUB 3 per-feature: 00-minimal 100%, 02-conformance 100%, 03-resources 97%, 04-ocf 78%, 05-package ~100%, 06-content 97%, 07-navigation 95%, 08-layout 100%, 09-media-overlays 100%, B-external-identifiers 100%, D-vocabularies ~100%, H-media-types 100%.
 
-#### 2. Package Document Tests (05-package-document) - 45 tests ready
+### Out-of-scope Java features (intentionally not ported)
 
-**Metadata validation (15 tests):**
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `metadata-identifier-empty-error.opf` | Empty identifier | OPF-015 |
-| `metadata-identifier-uuid-invalid-warning.opf` | Invalid UUID format | OPF-085 |
-| `metadata-language-empty-error.opf` | Empty language | OPF-017 |
-| `metadata-language-not-well-formed-error.opf` | Invalid language | OPF-092 |
-| `metadata-title-empty-error.opf` | Empty title | OPF-016 |
-| `metadata-title-missing-error.opf` | Missing title | OPF-016 |
-| `metadata-date-iso-syntax-error-warning.opf` | Invalid ISO date | OPF-053 |
-| `metadata-date-multiple-error.opf` | Multiple dates | RSC-005 |
-| `metadata-date-single-year-valid.opub` | Single year date | - |
-| `metadata-date-unknown-format-warning.opub` | Unknown date format | OPF-053 |
-| `metadata-date-with-whitespace-valid.opub` | Date with whitespace | - |
-| `metadata-modified-missing-error.opub` | Missing dcterms:modified | OPF-015 |
-| `metadata-modified-syntax-error.opub` | Invalid modified date | OPF-053 |
-| `metadata-meta-property-empty-error.opf` | Empty property | RSC-005 |
-| `metadata-meta-property-list-error.opf` | Property list | OPF-025 |
-| `metadata-meta-property-malformed-error.opf` | Malformed property | OPF-026 |
-| `metadata-meta-scheme-list-error.opf` | Scheme list | RSC-005 |
-| `metadata-meta-scheme-unknown-error.opub` | Unknown scheme | - |
-| `metadata-meta-scheme-valid.opub` | Valid scheme | - |
-| `metadata-meta-value-empty-error.opf` | Empty meta value | RSC-005 |
-| `metadata-refines-cycle-error.opub` | Refines cycle | OPF-065 |
-| `metadata-refines-not-a-fragment-warning.opub` | Non-fragment refines | RSC-017 |
-| `metadata-refines-not-relative-error.opub` | Non-relative refines | RSC-005 |
-| `metadata-refines-unknown-id-error.opub` | Unknown refines target | RSC-005 |
-
-**Link element validation (8 tests):**
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `link-hreflang-empty-valid.opub` | Empty hreflang | - |
-| `link-hreflang-not-well-formed-error.opub` | Invalid hreflang | RSC-005 |
-| `link-hreflang-valid.opub` | Valid hreflang | - |
-| `link-hreflang-whitespace-error.opub` | Whitespace in hreflang | RSC-005 |
-| `package-link-media-type-missing-local-error` | Missing media-type local | RSC-007 |
-| `package-link-media-type-missing-remote-valid` | Media-type optional remote | - |
-| `link-rel-multiple-properties-valid.opub` | Multiple rel | - |
-| `link-rel-record-properties-empty-error.opub` | Empty rel properties | RSC-005 |
-| `link-rel-record-properties-undefined-error.opub` | Undefined rel properties | - |
-| `link-to-package-document-id-error.opub` | Link to package ID | OPF-098 |
-| `link-to-spine-item-valid.opub` | Link to spine item | - |
-
-**Manifest/item validation (7 tests):**
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `item-duplicate-resource-error.opub` | Duplicate resource | OPF-074 |
-| `item-href-contains-spaces-unencoded-error.opub` | Unencoded spaces | PKG-010 |
-| `item-media-type-missing-error.opub` | Missing media-type | RSC-005 |
-| `item-nav-missing-error.opub` | Missing nav | OPF-030 |
-| `item-nav-multiple-error.opub` | Multiple nav items | OPF-030 |
-| `item-nav-not-xhtml-error.opub` | Nav not XHTML | OPF-030 |
-| `item-property-cover-image-multiple-error.opub` | Multiple cover images | RSC-005 |
-| `item-property-cover-image-webp-valid.opub` | WebP cover image | - |
-| `item-property-cover-image-wrongtype-error.opub` | Cover image wrong type | RSC-005 |
-| `item-property-unknown-error.opub` | Unknown property | - |
-
-**Collections validation (3 tests):**
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `collection-role-manifest-toplevel-error.opub` | Collection role placement | OPF-072 |
-| `collection-role-url-invalid-error.opub` | Invalid collection URL | OPF-073 |
-| `collection-role-url-valid.opub` | Valid collection URL | - |
-
-**Remote resources validation (12 tests):**
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `package-remote-audio-in-overlays-missing-property-error` | Remote audio in overlays | OPF-014 |
-| `package-remote-audio-missing-property-error` | Remote audio property | OPF-014 |
-| `package-remote-audio-sources-undeclared-error` | Undeclared audio sources | RSC-007 |
-| `package-remote-audio-undeclared-error` | Undeclared remote audio | RSC-007 |
-| `package-remote-font-in-css-missing-property-error` | Remote font in CSS | OPF-014 |
-| `package-remote-font-in-inline-css-missing-property-error` | Remote font inline CSS | OPF-014 |
-| `package-remote-font-in-svg-missing-property-error` | Remote font in SVG | OPF-014 |
-| `package-remote-font-in-xhtml-missing-property-error` | Remote font in XHTML | OPF-014 |
-| `package-remote-font-undeclared-error` | Undeclared remote font | RSC-007 |
-| `package-remote-img-in-link-error` | Remote img in link | RSC-006 |
-| `package-remote-resource-and-inline-css-valid` | Remote with inline CSS | - |
-| `package-manifest-prop-remote-resource-declared-but-unnecessary-error` | Unnecessary remote property | - |
-| `package-manifest-prop-remote-resource-object-param-warning` | Remote object param | OPF-014 |
-
-**Package attributes/spine (8 tests):**
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `package-unique-identifier-attribute-missing-error.opub` | Missing unique-identifier | OPF-048 |
-| `package-unique-identifier-not-targeting-identifier-error.opub` | Unique-identifier target | RSC-005 |
-| `package-unique-identifier-unknown-error.opub` | Unknown unique-identifier | RSC-005 |
-| `package-manifest-before-metadata-error.opub` | Manifest before metadata | RSC-005 |
-| `spine-item-svg-valid.opub` | SVG in spine | - |
-| `spine-nonlinear-not-reachable` | Non-linear not reachable | - |
-| `spine-nonlinear-reachable-via-hyperlink-valid` | Reachable via hyperlink | - |
-| `spine-nonlinear-reachable-via-nav-valid` | Reachable via nav | - |
-| `spine-nonlinear-reachable-via-script-valid` | Reachable via script | - |
-| `spine-not-listing-hyperlink-target-error` | Spine missing hyperlink target | - |
-| `spine-not-listing-navigation-document-target-error` | Spine missing nav target | - |
-
-**Legacy/other (5 tests):**
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `legacy-guide-duplicates-warning.opub` | Duplicate guide entries | - |
-| `legacy-ncx-toc-attribute-missing-error.opub` | Missing NCX toc | OPF-012 |
-| `legacy-ncx-toc-attribute-not-ncx-error.opub` | NCX toc not NCX | RSC-005 |
-| `bindings-deprecated-warning.opub` | Deprecated bindings | - |
-| `attr-dir-auto-valid.opub` | dir="auto" | - |
-| `attr-id-duplicate-error.opub` | Duplicate ID | RSC-005 |
-| `attr-id-duplicate-with-spaces-error.opub` | Duplicate ID whitespace | RSC-005 |
-| `attr-id-with-spaces-valid.opub` | ID with spaces | - |
-
-#### 3. Navigation Document Tests (07-navigation-document) - 30 tests ready
-
-**Nav content model (12 tests):**
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `content-model-heading-empty-error.xhtml` | Empty nav heading | RSC-005 |
-| `content-model-heading-p-error.xhtml` | P element as heading | RSC-005 |
-| `content-model-li-label-missing-error.xhtml` | Missing list item label | RSC-005 |
-| `content-model-li-label-empty-error.xhtml` | Empty list item label | RSC-005 |
-| `content-model-li-label-multiple-images-valid.xhtml` | Multiple images in label | - |
-| `content-model-li-leaf-with-no-link-error.xhtml` | Leaf with no link | RSC-005 |
-| `content-model-a-empty-error.xhtml` | Empty anchor | RSC-005 |
-| `content-model-a-multiple-images-valid.xhtml` | Multiple images in anchor | - |
-| `content-model-a-span-empty-error.xhtml` | Empty span in anchor | RSC-005 |
-| `content-model-a-with-leading-trailing-spaces-valid.xhtml` | Leading/trailing spaces | - |
-| `content-model-ol-empty-error.xhtml` | Empty ordered list | RSC-005 |
-| `nav-toc-nested-valid.xhtml` | Nested TOC nav | - |
-| `nav-toc-missing-references-to-spine-valid` | TOC missing spine refs | - |
-
-**Nav types validation (15 tests):**
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `nav-page-list-valid.xhtml` | Valid page list | - |
-| `nav-page-list-multiple-error.xhtml` | Multiple page-list nav | RSC-005 |
-| `nav-page-list-reading-order-valid` | Page list reading order | - |
-| `nav-page-list-unordered-spine-warning` | Page list spine unordered | (NAV-011 needed) |
-| `nav-landmarks-valid.xhtml` | Valid landmarks nav | - |
-| `nav-landmarks-link-type-missing-error.xhtml` | Missing epub:type | RSC-005 |
-| `nav-landmarks-multiple-error.xhtml` | Multiple landmarks nav | RSC-005 |
-| `nav-landmarks-nested-warning.xhtml` | Nested landmarks | (RSC-017 needed) |
-| `nav-landmarks-type-twice-valid.xhtml` | Same type different resources | - |
-| `nav-landmarks-type-twice-same-resource-error.xhtml` | Same type same resource | RSC-005 |
-| `nav-other-lot-valid.xhtml` | Valid lot nav | - |
-| `nav-other-heading-missing-error.xhtml` | Other nav missing heading | RSC-005 |
-| `nav-type-missing-not-restricted-valid.xhtml` | Missing epub:type allowed | - |
-| `hidden-nav-valid.xhtml` | Hidden nav valid | - |
-| `hidden-attribute-invalid-error.xhtml` | Invalid hidden attribute | RSC-005 |
-
-**CFI validation (1 test):**
-| Test Fixture | Feature | Message ID |
-|--------------|---------|------------|
-| `nav-cfi-valid` | EPUB CFI in nav | (CFI parser needed) |
-
----
-
-### Tests Requiring Implementation First
-
-| Message ID | Feature | Tests Blocked | Priority |
-|------------|---------|---------------|----------|
-| **RSC-033** | URL query strings in package links | 3 tests | High |
-| **NAV-011** | TOC unordered vs spine order warning | 3 tests | High |
-| **RSC-017** | Nested sublists in nav warning | 2 tests | Medium |
-| **EPUB CFI** | CFI fragment parsing | 1 test | Low |
+- `localization/localization.feature` (7) — TS validator has no i18n
+- `reporting/json-report.feature` (14) + `reporting/xml-report.feature` (2) — our report format differs
+- `cli/cli.feature` — different CLI surface
+- `unit-tests/url-fragment.feature` (16) — covered by TS unit tests
 
 ---
 
 ## Priority Next Steps
 
-### High Priority (Core Validation)
-1. **ARIA validation** - Role and attribute validation
-2. **ID/IDREF validation** - Duplicate ID detection (OPF-060)
-3. **DOCTYPE validation** - Obsolete identifiers
-4. **Entity validation** - External entities
-5. **Base URL handling** - xml:base, HTML base
-6. **Refines cycles** - OPF-065 detection
-7. **Link elements** - rel, hreflang, properties
-8. **UUID format** - dc:identifier validation
-9. **Non-UTF8 detection** - PKG-027 for filenames
+Ordered by measured impact on agreement with Java:
 
-### Medium Priority (Completeness)
+1. **Remaining false positives** — 141 error/warning occurrences across 40 IDs that Java does not emit, led by `RSC-005` (45), `RSC-017` (10) and `RSC-006` (9). At usage severity `OPF-088` (495), `OPF-097` (78) and `OPF-003` (55) dominate. These cost more agreement than any unimplemented check.
+2. **Remaining coverage gaps** — 90 error/warning occurrences across 20 IDs Java emits and we do not, more than half of them `RSC-005` (50), then `RSC-007` (10). Nothing else reaches five.
+3. **Line numbers for `RSC-005`** — ~130 messages still carry no line; the OPF model now records positions, so the remaining work is per-rule attribution.
+4. **Advanced media** — deep format validation beyond magic numbers (MED-003/004, PKG-021/022, OPF-051/057). No fixture exercises this any more now that the stub images are real, so it carries no measurable parity cost — but a truncated image in a real book still goes unflagged, and `PKG-021` currently fires only for files under 4 bytes.
+5. **Remaining accessibility** — ACC-008/013/015/016/017 (all suppressed by default; low real-world impact).
+6. **Specialized** — dictionary/index advanced validation, multiple renditions (metadata.xml), signatures.xml validation.
 
-Ordered by severity impact (number of active error/warning messages not yet emitted):
+### Unreachable code
 
-1. **Media overlays** - SMIL validation (10 errors: MED-003/005/007/008/009/010/011/012/013/014, 3 warnings: MED-016/017/018, 1 usage: MED-015, 3 suppressed: MED-001/002/006). Highest impact — 51 Java test scenarios, 0% implemented.
-2. **Encryption.xml** - Font obfuscation (1 error: PKG-026, 1 info: RSC-004). Small scope, quick win.
-3. **Advanced media** - Format validation, magic numbers (3 errors: MED-003/004, PKG-021, 1 warning: PKG-022, 2 suppressed: OPF-051/057).
-4. **URL encoding** - Edge cases (percent-encoded paths). Correctness improvement for existing RSC-* reference resolution, no new message IDs.
-5. **Full WCAG 2.0** - Comprehensive accessibility. Lowest real-world impact — all 15 unimplemented ACC messages (ACC-001/002/003/005/006/007/008/010/012/013/014/015/016/017) are **suppressed** by default. Only fires if user explicitly enables via customMessages. ACC-009 and ACC-011 (usage) are already implemented.
-
-### Low Priority (Specialized)
-- Dictionary/index advanced validation
-- Multiple renditions (metadata.xml)
-- Signatures.xml validation
+Resolved. `SchematronValidator` and `XMLParser`/`XMLWalker` were deleted — neither was ever imported outside its own test, in any commit. Schematron's rules ship as hand-ported TypeScript in `src/content/validator.ts` and `src/opf/validator.ts`; the misleading comment in `src/schema/orchestrator.ts` now says so. Removing them dropped `slimdom`, `slimdom-sax-parser` and `fontoxpath` (plus `saxes`, `prsc`, `xspattern` transitively) from the install, leaving three runtime dependencies: `css-tree`, `fflate`, `libxml2-wasm`.
 
 ---
 
 ## Message IDs
 
-**Defined**: ~165 message IDs
-**Actively used**: ~76 (46%)
+**Defined**: 300 · **Actively used**: 185 (62%)
 
-Most-used prefixes: OPF (27), RSC (15), PKG (12), CSS (6), HTM (6), NAV (3), NCX (4), ACC (4)
-Unused: MED (0), SCP (0), CHK (0)
+Active by prefix: OPF (62), RSC (26), PKG (22), HTM (22), MED (15), ACC (12), CSS (12), NAV (10), NCX (4). Unused prefixes: SCP, CHK, INF.
 
-### Recent Message ID Fixes (aligned with Java EPUBCheck)
-- `RSC-001` - Missing manifest resource (was OPF-010)
-- `RSC-002` - Missing container.xml (was PKG-003)
-- `RSC-008` - Reports from referencing document location (not referenced resource)
-- `PKG-007` - Mimetype content mismatch (now checks exact value, no trimming)
-- `PKG-009` - Disallowed characters in filenames (EPUB 3 spec compliance)
-- `PKG-010` - Whitespace in filenames (warning)
+### Intentionally Not Emitted (20 IDs)
 
-### Recent Validation Improvements
-- `OPF-034` - Duplicate spine itemref (now works for EPUB 3, was EPUB 2 only)
-- `OPF-050` - Spine toc attribute validation (now works for EPUB 3)
-- `OPF-060` - Duplicate filename detection with Unicode NFD normalization and full case folding
-- `PKG-027` - Non-UTF8 filename detection (validates raw ZIP filename bytes)
-- `RSC-007` - Cite attribute validation for blockquote/q/ins/del elements
-- `RSC-010` - Links to non-content document types (tested via nav-links-to-non-content-document-type-error)
-- `CSS-001` - Forbidden CSS properties (direction, unicode-bidi)
-- `NAV-010` - Remote links in toc/landmarks/page-list navigation
-- `RSC-011` - Navigation links to items not in spine
-- `OPF-027` - Undefined manifest item properties (including prefixed properties)
-- `OPF-093` - Missing media-type for local linked resources
-- iframe `<iframe src>` reference extraction for RSC-007 validation
-- Script detection excludes non-JS types (application/ld+json, application/json)
-- `RSC-009` - Non-SVG image fragment identifiers (warning)
-- `HTM-045` - Empty href attribute handling (USAGE severity)
-- MathML altimg reference validation
-- Img srcset attribute parsing
-- Remote script src detection (RSC-006)
-- SVG ID extraction for fragment validation
-- Data URL handling aligned with EPUB 3 spec (allowed for images/audio/video/fonts)
+Defined for registry parity but not emitted by design — **not** counted as gaps:
+
+| ID(s) | Reason |
+|---|---|
+| `CHK-001`…`CHK-008` (8) | Report malformed `--customMessages` file; TS throws native Node errors instead. |
+| `RSC-022` | "Requires Java 7+" — JVM-specific. |
+| `RSC-024` / `RSC-025` | Pass-through of Xerces XML diagnostics; TS uses libxml2-wasm. |
+| `INF-001` | "Rule under review" placeholder — rarely used even by Java. |
+| `PKG-023` | Informational log line, not a validation finding (TS logs via stderr). |
+| `OPF-011` | Commented out in upstream Java; no longer emitted. |
+| `OPF-021` | Java emits only from DTBook handler (DAISY 3); TS has no DTBook handler. |
+| `OPF-036`, `HTM-005`, `HTM-044` | Defined in Java but never emitted by any code path (dead IDs). |
+| `HTM-011` | Java notes it's never reported; undeclared entities surface as RSC-005 (matches TS). |
+| `PKG-020` | Unreachable in Java's actual flow (stops at OPF-002 first); TS emits OPF-002. |
 
 ---
 

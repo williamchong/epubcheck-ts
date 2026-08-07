@@ -8,7 +8,7 @@
 
 > **getAllMessages**(): readonly [`MessageInfo`](../interfaces/MessageInfo.md)[]
 
-Defined in: messages/messages.ts:1238
+Defined in: messages/messages.ts:1259
 
 Get all message definitions as an array (for iteration/display)
 

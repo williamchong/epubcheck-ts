@@ -8,7 +8,7 @@
 
 > **formatMessageList**(): `string`
 
-Defined in: messages/messages.ts:1245
+Defined in: messages/messages.ts:1266
 
 Format message list for console output
 

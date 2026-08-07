@@ -38,9 +38,9 @@ Validate XML content against a schema
 
 ##### xml
 
-`string`
+The XML content to validate, as raw bytes or decoded text
 
-The XML content to validate
+`string` | `Uint8Array`\<`ArrayBufferLike`\>
 
 ##### schemaPath
 

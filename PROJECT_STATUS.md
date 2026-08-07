@@ -98,9 +98,9 @@ The standalone corpus is every `.opf`/`.xhtml`/`.svg` under `../epubcheck/src/te
 
 | Category | Tests | Passed | Skipped |
 |----------|-------|--------|---------|
-| Unit Tests | 488 | 486 | 2 |
+| Unit Tests | 482 | 480 | 2 |
 | Integration Tests | 947 | 935 | 12 |
-| **Total** | **1435** | **1421** | **14** |
+| **Total** | **1429** | **1415** | **14** |
 
 Unit tests include 17 for the parity harness itself (`test/unit/parity.test.ts`) — cache keying, the ID-set vs ID-count distinction, and the location metric. The harness gates CI, so a silent bug there would not make a check wrong; it would make every check unverifiable while still printing a confident percentage.
 

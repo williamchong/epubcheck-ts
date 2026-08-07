@@ -8,7 +8,7 @@
 
 > `const` **MessageId**: `object`
 
-Defined in: messages/messages.ts:1204
+Defined in: messages/messages.ts:1225
 
 MessageId provides enum-like access to message IDs.
 
@@ -882,6 +882,10 @@ MessageId provides enum-like access to message IDs.
 
 > **OPF\_086**: `"OPF-086"`
 
+### OPF\_086b
+
+> **OPF\_086b**: `"OPF-086b"`
+
 ### OPF\_087
 
 > **OPF\_087**: `"OPF-087"`
@@ -921,6 +925,10 @@ MessageId provides enum-like access to message IDs.
 ### OPF\_096
 
 > **OPF\_096**: `"OPF-096"`
+
+### OPF\_096b
+
+> **OPF\_096b**: `"OPF-096b"`
 
 ### OPF\_097
 

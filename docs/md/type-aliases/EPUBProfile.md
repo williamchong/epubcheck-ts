@@ -8,6 +8,6 @@
 
 > **EPUBProfile** = `"default"` \| `"edupub"` \| `"idx"` \| `"dict"` \| `"preview"`
 
-Defined in: types.ts:16
+Defined in: types.ts:19
 
 EPUB validation profiles

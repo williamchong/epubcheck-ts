@@ -6,7 +6,7 @@
 
 # Interface: EpubCheckResult
 
-Defined in: types.ts:51
+Defined in: types.ts:59
 
 Result of EPUB validation
 
@@ -16,7 +16,7 @@ Result of EPUB validation
 
 > **elapsedMs**: `number`
 
-Defined in: types.ts:69
+Defined in: types.ts:77
 
 Time taken for validation in milliseconds
 
@@ -26,7 +26,7 @@ Time taken for validation in milliseconds
 
 > **errorCount**: `number`
 
-Defined in: types.ts:59
+Defined in: types.ts:67
 
 Count of errors
 
@@ -36,7 +36,7 @@ Count of errors
 
 > **fatalCount**: `number`
 
-Defined in: types.ts:57
+Defined in: types.ts:65
 
 Count of fatal errors
 
@@ -46,7 +46,7 @@ Count of fatal errors
 
 > **infoCount**: `number`
 
-Defined in: types.ts:63
+Defined in: types.ts:71
 
 Count of info messages
 
@@ -56,7 +56,7 @@ Count of info messages
 
 > **messages**: [`ValidationMessage`](ValidationMessage.md)[]
 
-Defined in: types.ts:55
+Defined in: types.ts:63
 
 All validation messages
 
@@ -66,7 +66,7 @@ All validation messages
 
 > **usageCount**: `number`
 
-Defined in: types.ts:65
+Defined in: types.ts:73
 
 Count of usage messages
 
@@ -76,7 +76,7 @@ Count of usage messages
 
 > **valid**: `boolean`
 
-Defined in: types.ts:53
+Defined in: types.ts:61
 
 Whether the EPUB is valid (no errors or fatal errors)
 
@@ -84,9 +84,9 @@ Whether the EPUB is valid (no errors or fatal errors)
 
 ### version?
 
-> `optional` **version**: [`EPUBVersion`](../type-aliases/EPUBVersion.md)
+> `optional` **version**: `"2.0"` \| `"3.0"` \| `"3.1"` \| `"3.2"` \| `"3.3"`
 
-Defined in: types.ts:67
+Defined in: types.ts:75
 
 Detected EPUB version
 
@@ -96,6 +96,6 @@ Detected EPUB version
 
 > **warningCount**: `number`
 
-Defined in: types.ts:61
+Defined in: types.ts:69
 
 Count of warnings

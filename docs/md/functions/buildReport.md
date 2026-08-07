@@ -20,7 +20,7 @@ Build a validation result from messages
 
 ### version
 
-[`EPUBVersion`](../type-aliases/EPUBVersion.md) | `undefined`
+`"2.0"` | `"3.0"` | `"3.1"` | `"3.2"` | `"3.3"` | `undefined`
 
 ### elapsedMs
 

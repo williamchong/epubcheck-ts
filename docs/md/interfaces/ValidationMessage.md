@@ -6,7 +6,7 @@
 
 # Interface: ValidationMessage
 
-Defined in: types.ts:35
+Defined in: types.ts:43
 
 A validation message (error, warning, etc.)
 
@@ -16,7 +16,7 @@ A validation message (error, warning, etc.)
 
 > **id**: `string`
 
-Defined in: types.ts:37
+Defined in: types.ts:45
 
 Unique message identifier
 
@@ -26,7 +26,7 @@ Unique message identifier
 
 > `optional` **location**: `EPUBLocation`
 
-Defined in: types.ts:43
+Defined in: types.ts:51
 
 Location where the issue was found
 
@@ -36,7 +36,7 @@ Location where the issue was found
 
 > **message**: `string`
 
-Defined in: types.ts:41
+Defined in: types.ts:49
 
 Human-readable message
 
@@ -46,7 +46,7 @@ Human-readable message
 
 > **severity**: [`Severity`](../type-aliases/Severity.md)
 
-Defined in: types.ts:39
+Defined in: types.ts:47
 
 Severity level
 
@@ -56,6 +56,6 @@ Severity level
 
 > `optional` **suggestion**: `string`
 
-Defined in: types.ts:45
+Defined in: types.ts:53
 
 Suggestion for fixing the issue

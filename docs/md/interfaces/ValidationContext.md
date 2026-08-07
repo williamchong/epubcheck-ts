@@ -6,17 +6,95 @@
 
 # Interface: ValidationContext
 
-Defined in: types.ts:93
+Defined in: types.ts:111
 
 Internal validation context passed through the validation pipeline
 
 ## Properties
 
+### contentFeatures?
+
+> `optional` **contentFeatures**: `object`
+
+Defined in: types.ts:162
+
+Feature flags collected during content validation for cross-document checks
+
+#### dictionaryContentPaths?
+
+> `optional` **dictionaryContentPaths**: `Set`\<`string`\>
+
+#### hasAudio?
+
+> `optional` **hasAudio**: `boolean`
+
+#### hasDictionary?
+
+> `optional` **hasDictionary**: `boolean`
+
+#### hasFigure?
+
+> `optional` **hasFigure**: `boolean`
+
+#### hasIndex?
+
+> `optional` **hasIndex**: `boolean`
+
+#### hasLOA?
+
+> `optional` **hasLOA**: `boolean`
+
+#### hasLOI?
+
+> `optional` **hasLOI**: `boolean`
+
+#### hasLOT?
+
+> `optional` **hasLOT**: `boolean`
+
+#### hasLOV?
+
+> `optional` **hasLOV**: `boolean`
+
+#### hasMicrodata?
+
+> `optional` **hasMicrodata**: `boolean`
+
+#### hasPageBreak?
+
+> `optional` **hasPageBreak**: `boolean`
+
+#### hasPageList?
+
+> `optional` **hasPageList**: `boolean`
+
+#### hasRDFa?
+
+> `optional` **hasRDFa**: `boolean`
+
+#### hasTable?
+
+> `optional` **hasTable**: `boolean`
+
+#### hasVideo?
+
+> `optional` **hasVideo**: `boolean`
+
+#### sectionCount?
+
+> `optional` **sectionCount**: `number`
+
+#### tocLinkCount?
+
+> `optional` **tocLinkCount**: `number`
+
+***
+
 ### data
 
 > **data**: `Uint8Array`
 
-Defined in: types.ts:95
+Defined in: types.ts:113
 
 EPUB file data
 
@@ -26,9 +104,46 @@ EPUB file data
 
 > **files**: `Map`\<`string`, `Uint8Array`\<`ArrayBufferLike`\>\>
 
-Defined in: types.ts:103
+Defined in: types.ts:121
 
 Files extracted from EPUB container
+
+***
+
+### hasContainer
+
+> **hasContainer**: `boolean`
+
+Defined in: types.ts:134
+
+Whether an OCF container backs this validation.
+
+Java splits the package document checks in two (OPFChecker.check): with a
+container it runs checkPackage(), which owns the unique-identifier check,
+the guide, and the whole reference-resolution pass; without one it runs
+only checkContent(), the schema and handler checks. Single-file modes have
+no container, so anything resolving a path against one is meaningless
+there and Java stays silent rather than reporting an unresolvable target.
+
+***
+
+### mediaActiveClass?
+
+> `optional` **mediaActiveClass**: `string`
+
+Defined in: types.ts:156
+
+OPF media:active-class value (if declared)
+
+***
+
+### mediaPlaybackActiveClass?
+
+> `optional` **mediaPlaybackActiveClass**: `string`
+
+Defined in: types.ts:158
+
+OPF media:playback-active-class value (if declared)
 
 ***
 
@@ -36,7 +151,7 @@ Files extracted from EPUB container
 
 > **messages**: [`ValidationMessage`](ValidationMessage.md)[]
 
-Defined in: types.ts:101
+Defined in: types.ts:119
 
 Validation messages collected so far
 
@@ -46,9 +161,19 @@ Validation messages collected so far
 
 > `optional` **ncxUid**: `string`
 
-Defined in: types.ts:111
+Defined in: types.ts:148
 
 NCX UID for validation against OPF identifier
+
+***
+
+### obfuscatedResources?
+
+> `optional` **obfuscatedResources**: `Set`\<`string`\>
+
+Defined in: types.ts:160
+
+Resources marked with IDPF font obfuscation in encryption.xml
 
 ***
 
@@ -56,7 +181,7 @@ NCX UID for validation against OPF identifier
 
 > `optional` **opfPath**: `string`
 
-Defined in: types.ts:107
+Defined in: types.ts:136
 
 Path to the package document (OPF)
 
@@ -64,11 +189,33 @@ Path to the package document (OPF)
 
 ### options
 
-> **options**: `Required`\<[`EpubCheckOptions`](EpubCheckOptions.md)\>
+> **options**: [`ResolvedEpubCheckOptions`](../type-aliases/ResolvedEpubCheckOptions.md)
 
-Defined in: types.ts:97
+Defined in: types.ts:115
 
 Validation options
+
+***
+
+### overlayTextLinks?
+
+> `optional` **overlayTextLinks**: `object`[]
+
+Defined in: types.ts:154
+
+Media overlay text link targets in order, for reading order validation (MED-015)
+
+#### fragment?
+
+> `optional` **fragment**: `string`
+
+#### location
+
+> **location**: `EPUBLocation`
+
+#### targetResource
+
+> **targetResource**: `string`
 
 ***
 
@@ -76,7 +223,7 @@ Validation options
 
 > `optional` **packageDocument**: `PackageDocument`
 
-Defined in: types.ts:109
+Defined in: types.ts:146
 
 Parsed package document
 
@@ -86,7 +233,7 @@ Parsed package document
 
 > `optional` **referencedUndeclaredResources**: `Set`\<`string`\>
 
-Defined in: types.ts:113
+Defined in: types.ts:150
 
 Resources referenced in content but not declared in manifest
 
@@ -96,16 +243,52 @@ Resources referenced in content but not declared in manifest
 
 > **rootfiles**: `Rootfile`[]
 
-Defined in: types.ts:105
+Defined in: types.ts:123
 
 Rootfiles found in container.xml
 
 ***
 
+### tocLinks?
+
+> `optional` **tocLinks**: `object`[]
+
+Defined in: types.ts:152
+
+TOC navigation link targets in order, for reading order validation (NAV-011)
+
+#### fragment?
+
+> `optional` **fragment**: `string`
+
+#### location
+
+> **location**: `EPUBLocation`
+
+#### targetResource
+
+> **targetResource**: `string`
+
+***
+
 ### version
 
-> **version**: [`EPUBVersion`](../type-aliases/EPUBVersion.md)
+> **version**: `"2.0"` \| `"3.0"` \| `"3.1"` \| `"3.2"` \| `"3.3"`
 
-Defined in: types.ts:99
+Defined in: types.ts:117
 
 Detected EPUB version
+
+***
+
+### xmlParseFailures?
+
+> `optional` **xmlParseFailures**: `Map`\<`string`, `XmlParseFailure`\>
+
+Defined in: types.ts:144
+
+Paths whose XML is not well-formed, keyed by path. A fatal parse error is
+reported once, at the point the document is read; later passes skip these
+paths rather than reporting the same failure again in their own terms.
+The failure records how far the parse got, which decides whether a
+document model exists for those passes to work from.

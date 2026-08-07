@@ -4,26 +4,25 @@
 
 # epubcheck-ts
 
-A TypeScript port of [EPUBCheck](https://github.com/w3c/epubcheck) - the official conformance checker for EPUB publications.
+Validate EPUB files in Node.js and the browser. A TypeScript implementation of [EPUBCheck](https://github.com/w3c/epubcheck).
 
 [![CI](https://github.com/likecoin/epubcheck-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/likecoin/epubcheck-ts/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/%40likecoin%2Fepubcheck-ts)](https://www.npmjs.com/package/@likecoin/epubcheck-ts)
 [![License](https://img.shields.io/npm/l/%40likecoin%2Fepubcheck-ts)](./LICENSE)
 
-> **Note**: This library is primarily developed for internal use at [3ook.com](https://3ook.com/about) and is built with AI-assisted development. While it has comprehensive test coverage (505 tests) and ~70% feature parity with Java EPUBCheck, it may not be suitable for mission-critical production workloads. For production environments requiring full EPUB validation, consider using the official [Java EPUBCheck](https://github.com/w3c/epubcheck). Contributions and feedback are welcome!
+> **Status**: Measured against EPUBCheck 5.3.0 across 758 spec fixtures — **97% agreement on whether a publication is valid**, 88% agreement on which errors and warnings are reported. Agreement is near-total on real-world EPUBs. See [PROJECT_STATUS.md](_media/PROJECT_STATUS.md) for the full breakdown and methodology. For formal EPUB 3 conformance certification, use the official [Java EPUBCheck](https://github.com/w3c/epubcheck).
 
 ## Features
 
-- **CLI and programmatic API**: Use as a command-line tool or integrate into your application
-- **Cross-platform**: Works in Node.js (18+) and modern browsers
-- **Partial EPUB validation**: Currently ~70% of EPUBCheck feature parity
-- **Zero native dependencies**: Pure JavaScript/WebAssembly, no compilation required
-- **TypeScript first**: Full type definitions included
-- **Tree-shakable**: ESM with proper exports for optimal bundling
+- **CLI and API** — Use as a CLI tool (`npx @likecoin/epubcheck-ts book.epub`) or import as a library
+- **Browser support** — Works in Node.js 18+ and modern browsers via pure JS + WASM
+- **No native dependencies** — No Java, no compilation — `npm install` and go
+- **TypeScript** — Full type definitions included
+- **Tree-shakable** — ESM with proper exports for minimal bundle impact
 
 ## Try it Online
 
-Try the live demo at **[likecoin.github.io/epubcheck-ts](https://likecoin.github.io/epubcheck-ts/)** - validate your EPUB files directly in the browser without uploading to any server.
+Live demo at **[likecoin.github.io/epubcheck-ts](https://likecoin.github.io/epubcheck-ts/)** — validate EPUB files in the browser without uploading to any server.
 
 ## Installation
 
@@ -54,7 +53,13 @@ Options:
   -j, --json <file>        Output JSON report to file (use '-' for stdout)
   -q, --quiet              Suppress console output (errors only)
   -p, --profile <name>     Validation profile (default|dict|edupub|idx|preview)
+  -u, --usage              Include usage messages (best practices)
+  -f, --fatal              Show only fatal errors
+  -e, --error              Show fatal errors and errors
+      --warn               Show fatal errors, errors, and warnings
+  -c, --customMessages <file>  Override message severities (TSV: ID<tab>SEVERITY)
   -w, --fail-on-warnings   Exit with code 1 if warnings are found
+  -l, --listChecks         List all message IDs and severities
   -v, --version            Show version information
   -h, --help               Show this help message
 ```
@@ -72,9 +77,14 @@ epubcheck-ts book.epub --quiet --fail-on-warnings
 
 # Validate with specific profile
 epubcheck-ts dictionary.epub --profile dict
-```
 
-**Note:** This CLI provides ~70% coverage of Java EPUBCheck features. For complete EPUB 3 conformance testing, use the [official Java EPUBCheck](https://github.com/w3c/epubcheck).
+# Show only errors (hide warnings/info)
+epubcheck-ts book.epub --error
+
+# Enable suppressed accessibility checks
+printf "ACC-004\tWARNING\nACC-005\tWARNING\n" > overrides.txt
+epubcheck-ts book.epub -c overrides.txt
+```
 
 ### ES Modules (recommended)
 
@@ -108,16 +118,21 @@ if (result.valid) {
 const fs = require('node:fs');
 
 async function validate() {
-  const { EpubCheck } = await import('epubcheck-ts');
-  
+  const { EpubCheck } = require('@likecoin/epubcheck-ts');
+
   const epubData = fs.readFileSync('book.epub');
   const result = await EpubCheck.validate(epubData);
-  
+
   console.log(result.valid ? 'Valid!' : 'Invalid');
 }
 
 validate();
 ```
+
+> The XML engine (`libxml2-wasm`, ESM-only with top-level await) is lazy-loaded
+> inside `EpubCheck.validate()`, so the package stays `require()`-able from
+> CommonJS and importable without forcing top-level-await support on your
+> bundler.
 
 ### Browser
 
@@ -136,6 +151,8 @@ fileInput.addEventListener('change', async (event) => {
 ```
 
 ## API
+
+> Full API reference: [online](https://likecoin.github.io/epubcheck-ts/docs/) | [markdown](_media/globals.md)
 
 ### `EpubCheck.validate(data, options?)`
 
@@ -183,6 +200,9 @@ interface EpubCheckOptions {
   
   /** Locale for messages (default: 'en') */
   locale?: string;
+  
+  /** Custom message severity overrides (message ID → severity) */
+  customMessages?: Map<string, MessageSeverity>;
 }
 ```
 
@@ -262,28 +282,30 @@ This library is a TypeScript port of the Java-based [EPUBCheck](https://github.c
 - **XML Processing**: Uses [libxml2-wasm](https://github.com/nicklasb/libxml2-wasm) for XML parsing and schema validation (RelaxNG, XSD) via WebAssembly
 - **ZIP Handling**: Uses [fflate](https://github.com/101arrowz/fflate) for fast, lightweight EPUB container processing
 - **CSS Validation**: Uses [css-tree](https://github.com/nicklasb/css-tree) for CSS parsing and validation
-- **Schematron**: Uses [fontoxpath](https://github.com/FontoXML/fontoxpath) with [slimdom](https://github.com/bwrrp/slimdom.js) for XPath 3.1 evaluation
+- **Schematron rules**: Hand-ported to TypeScript rather than evaluated from `.sch` files — there is no Schematron engine, so the three runtime dependencies above are the whole list
 
 ## Validation Coverage
 
 | Component | Status | Completeness | Notes |
 |-----------|--------|--------------|-------|
-| OCF Container | 🟡 Partial | ~70% | ZIP structure, mimetype (uncompressed check), container.xml |
-| Package Document (OPF) | 🟡 Partial | ~70% | Metadata, manifest, spine, collections, version/date validation |
-| Content Documents | 🟡 Partial | ~70% | XHTML structure, script/MathML/SVG detection, link validation |
-| Navigation Document | 🟡 Partial | ~40% | Nav structure, NCX validation, remote link validation |
-| Schema Validation | 🟡 Partial | ~50% | RelaxNG for OPF/container; XHTML/SVG disabled (libxml2 limitation) |
-| CSS | 🟡 Partial | ~50% | @font-face, @import, media overlay classes, position warnings |
-| Cross-reference Validation | 🟡 Partial | ~75% | Reference tracking, fragment validation, undeclared resources |
-| Accessibility Checks | 🟡 Partial | ~30% | Basic checks only (empty links, image alt, SVG titles) |
-| Media Overlays | ❌ Not Started | 0% | Planned |
-| Media Validation | ❌ Not Started | 0% | Planned |
+| OCF Container | 🟢 Complete | ~92% | ZIP structure, mimetype, container.xml, encryption.xml obfuscation |
+| Package Document (OPF) | 🟢 Complete | ~92% | Metadata, manifest, spine, collections, Schematron-equivalent checks |
+| Content Documents | 🟢 Complete | ~93% | XHTML structure, CSS url(), @import, SVG, entities, title, SSML, XML version |
+| Navigation Document | 🟢 Complete | ~95% | Nav content model, landmarks, labels, reading order, hidden, nested-ol |
+| Schema Validation | 🟡 Partial | ~55% | RelaxNG for OPF/container; XHTML/SVG disabled (libxml2 limitation) |
+| CSS | 🟡 Partial | ~85% | @font-face, @import, url() extraction, position, forbidden properties, alt style tags |
+| Cross-reference Validation | 🟢 Complete | ~92% | Reference tracking, fragments, fallbacks, remote resources, cross-document features |
+| Accessibility Checks | 🟢 Complete | ~71% | 12/17 ACC checks: table, image alt, hyperlink, MathML, SVG, epub:type, OPF metadata |
+| Media Overlays | 🟡 Partial | ~70% | SMIL structure, timing, audio, OPF metadata, duration validation |
+| Media Validation | 🟡 Partial | ~25% | Magic number checks (MED-004/OPF-029/PKG-022); deep format parsing planned |
 
 Legend: 🟢 Complete | 🟡 Partial | 🔴 Basic | ❌ Not Started
 
-**Overall Progress: ~70% of Java EPUBCheck features**
-
-See [PROJECT_STATUS.md](_media/PROJECT_STATUS.md) for detailed comparison.
+The percentages above are per-component estimates. For what actually matters —
+whether this tool and Java EPUBCheck reach the same verdict on the same file —
+see the measured figures in [PROJECT_STATUS.md](_media/PROJECT_STATUS.md): **97%
+valid/invalid agreement and 88% error/warning agreement** across 758 fixtures,
+with the remaining differences enumerated.
 
 ## Development
 
@@ -323,6 +345,9 @@ npm run build
 | `npm run format` | Format with Biome |
 | `npm run typecheck` | TypeScript type checking |
 | `npm run check` | Run all checks (format + typecheck) |
+| `npm run docs` | Generate API docs (HTML + Markdown) |
+| `npm run docs:html` | Generate HTML API docs to `docs/html/` |
+| `npm run docs:md` | Generate Markdown API docs to `docs/md/` |
 
 ### Project Structure
 
@@ -342,13 +367,14 @@ epubcheck-ts/
 │   ├── schema/            # Schema validation ✅
 │   │   ├── relaxng.ts     # RelaxNG validation
 │   │   ├── xsd.ts         # XSD validation
-│   │   ├── schematron.ts  # Schematron validation
 │   │   └── orchestrator.ts # Schema orchestration
 │   └── messages/          # Error messages
-├── schemas/               # Schema files (RNG, RNC, SCH)
+├── schemas/               # Schema files (RNG, RNC, XSD)
 ├── test/
 │   ├── fixtures/          # Test EPUB files
 │   └── integration/       # Integration tests
+├── docs/
+│   └── md/                # Generated API docs (Markdown, checked in)
 ├── examples/
 │   └── web/               # Web demo ✅
 └── dist/                  # Build output
@@ -361,13 +387,13 @@ Legend: ✅ Implemented
 | Aspect | epubcheck-ts | EPUBCheck (Java) |
 |--------|--------------|------------------|
 | Runtime | Node.js / Browser | JVM |
-| Feature Parity | ~70% | 100% |
+| Verdict agreement | 97% (measured, n=758) | Baseline |
 | Bundle Size | ~450KB JS + ~1.6MB WASM | ~15MB |
 | Installation | `npm install` | Download JAR |
 | Integration | Native JS/TS | CLI or Java API |
 | Performance | Comparable | Baseline |
 
-**Note:** epubcheck-ts is currently in active development. See [PROJECT_STATUS.md](_media/PROJECT_STATUS.md) for detailed feature comparison.
+See [PROJECT_STATUS.md](_media/PROJECT_STATUS.md) for detailed feature comparison.
 
 ## Contributing
 

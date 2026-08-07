@@ -8,7 +8,7 @@
 
 > **getDefaultSeverity**(`id`): [`MessageSeverity`](../type-aliases/MessageSeverity.md)
 
-Defined in: messages/messages.ts:1230
+Defined in: messages/messages.ts:1251
 
 Get default severity for a message ID
 

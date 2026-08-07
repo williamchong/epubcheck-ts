@@ -8,6 +8,6 @@
 
 > **Severity** = `"fatal"` \| `"error"` \| `"warning"` \| `"info"` \| `"usage"`
 
-Defined in: types.ts:6
+Defined in: types.ts:8
 
 Severity levels for validation messages

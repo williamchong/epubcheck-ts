@@ -6,8 +6,6 @@
 
 # Type Alias: EPUBVersion
 
-> **EPUBVersion** = `"2.0"` \| `"3.0"` \| `"3.1"` \| `"3.2"` \| `"3.3"`
+> **EPUBVersion** = *typeof* [`EPUB_VERSIONS`](../variables/EPUB_VERSIONS.md)\[`number`\]
 
-Defined in: types.ts:11
-
-Supported EPUB versions
+Defined in: types.ts:14
