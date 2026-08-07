@@ -25,6 +25,7 @@ import { SMILValidator } from './smil/validator.js';
 import { parseDoctype } from './util/doctype.js';
 import { decodeXmlBytes, sniffXmlEncoding } from './util/encoding.js';
 import { locationAt } from './util/location.js';
+import { dirname } from './util/path.js';
 import type { XmlParseFailure } from './util/xml-engine.js';
 import { checkXmlWellFormed, loadXmlEngine } from './util/xml-engine.js';
 import type {
@@ -489,7 +490,7 @@ export class EpubCheck {
 
     // Mirrors OPFChecker30.checkDictCollectionContent
     if (profile === 'dict' && context.packageDocument) {
-      const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+      const opfDir = dirname(opfPath);
       const manifestByPath = new Map<string, (typeof context.packageDocument.manifest)[number]>();
       for (const item of context.packageDocument.manifest) {
         manifestByPath.set(resolveManifestHref(opfDir, item.href), item);
@@ -586,7 +587,7 @@ export class EpubCheck {
     }
 
     const opfPath = context.opfPath ?? '';
-    const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+    const opfDir = dirname(opfPath);
     const ncxPath = resolveManifestHref(opfDir, ncxItem.href);
 
     const ncxData = context.files.get(ncxPath);
@@ -662,7 +663,7 @@ export class EpubCheck {
     ]);
 
     const opfPath = context.opfPath ?? '';
-    const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+    const opfDir = dirname(opfPath);
 
     for (const uri of context.obfuscatedResources) {
       const item = context.packageDocument.manifest.find(
@@ -686,7 +687,7 @@ export class EpubCheck {
     if (!packageDoc) return;
 
     const opfPath = context.opfPath ?? '';
-    const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+    const opfDir = dirname(opfPath);
 
     const spineIdrefs = new Set(packageDoc.spine.map((item) => item.idref));
     const manifestById = new Map(packageDoc.manifest.map((item) => [item.id, item]));
@@ -869,7 +870,7 @@ export class EpubCheck {
     if (context.version === '2.0') return;
 
     const opfPath = context.opfPath ?? '';
-    const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+    const opfDir = dirname(opfPath);
 
     for (const item of context.packageDocument.manifest) {
       const mediaType = item.mediaType;

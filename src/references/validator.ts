@@ -8,6 +8,7 @@ import type { EPUBVersion, ValidationContext } from '../types.js';
 import type { ResourceRegistry } from './registry.js';
 import type { Reference } from './types.js';
 import { ReferenceType, isPublicationResourceReference } from './types.js';
+import { dirname } from '../util/path.js';
 import {
   checkUrlLeaking,
   hasAbsolutePath,
@@ -522,7 +523,7 @@ export class ReferenceValidator {
     const packageDoc = context.packageDocument;
     const spine = packageDoc.spine;
     const opfPath = context.opfPath ?? '';
-    const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+    const opfDir = dirname(opfPath);
 
     const spinePositionMap = new Map<string, number>();
     for (const [i, spineRef] of spine.entries()) {
@@ -612,7 +613,7 @@ export class ReferenceValidator {
 
     const spine = context.packageDocument.spine;
     const opfPath = context.opfPath ?? '';
-    const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+    const opfDir = dirname(opfPath);
 
     const hyperlinkTargets = new Set<string>();
     for (const ref of this.references) {

@@ -1,10 +1,11 @@
 import { MessageId, pushMessage } from '../messages/index.js';
-import { checkUrlLeaking, isDataURL, isFileURL } from '../references/url.js';
+import { checkUrlLeaking, isDataURL, isFileURL, tryDecodeUriComponent } from '../references/url.js';
 import { isValidSmilClock, parseSmilClock } from '../smil/clock.js';
 import { EPUB_VERSIONS, type EPUBProfile, type ValidationContext } from '../types.js';
 import { parseDoctype } from '../util/doctype.js';
 import { decodeXmlBytes } from '../util/encoding.js';
 import { locationAt } from '../util/location.js';
+import { basename, resolvePath } from '../util/path.js';
 import { parseOPF, stripXmlComments } from './parser.js';
 import type { Collection, ManifestItem, PackageDocument } from './types.js';
 import { ITEM_PROPERTIES, LINK_PROPERTIES, SPINE_PROPERTIES } from './types.js';
@@ -3221,7 +3222,7 @@ function parseCollectionMetas(innerXml: string): { property: string; value: stri
 }
 
 function isOSFile(path: string): boolean {
-  const name = path.includes('/') ? (path.split('/').pop() ?? path) : path;
+  const name = basename(path);
   return OS_FILE_NAMES.has(name);
 }
 
@@ -3249,50 +3250,6 @@ function isValidLanguageTag(tag: string): boolean {
   // Private-use only tags (e.g., "x-custom")
   if (/^x(-[a-zA-Z\d]{1,8})+$/.test(tag)) return true;
   return GRANDFATHERED_LANG_TAGS.has(tag);
-}
-
-/**
- * Resolve a relative path against a base path
- */
-export function resolvePath(basePath: string, relativePath: string): string {
-  if (relativePath.startsWith('/')) {
-    return relativePath.slice(1);
-  }
-
-  const baseDir = basePath.includes('/') ? basePath.substring(0, basePath.lastIndexOf('/')) : '';
-
-  if (!baseDir) {
-    return relativePath;
-  }
-
-  // Handle ../ and ./ in relative path
-  const parts = baseDir.split('/');
-  const relParts = relativePath.split('/');
-
-  for (const part of relParts) {
-    if (part === '..') {
-      parts.pop();
-    } else if (part !== '.') {
-      parts.push(part);
-    }
-  }
-
-  return parts.join('/');
-}
-
-/**
- * Safely decode a URI component, returning the original if decoding fails
- *
- * This is needed because OPF hrefs may be URL-encoded (e.g., "table%20us%202.png")
- * but the actual file paths in the ZIP are not encoded (e.g., "table us 2.png").
- */
-export function tryDecodeUriComponent(encoded: string): string {
-  try {
-    return decodeURIComponent(encoded);
-  } catch {
-    // If decoding fails (e.g., invalid encoding), return original
-    return encoded;
-  }
 }
 
 /**

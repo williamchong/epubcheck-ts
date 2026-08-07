@@ -5,6 +5,7 @@
 import { type Atrule, type CssNode, type Declaration, type Url, parse, walk } from 'css-tree';
 import { MessageId, pushMessage } from '../messages/index.js';
 import type { ValidationContext } from '../types.js';
+import { resolvePath } from '../util/path.js';
 
 interface ParseErrorWithLocation {
   formattedMessage: string;
@@ -497,11 +498,7 @@ export class CSSValidator {
     // Also check if the manifest has this file with a non-standard type
     const packageDoc = context.packageDocument;
     if (packageDoc) {
-      // Resolve relative URL
-      const cssDir = resourcePath.includes('/')
-        ? resourcePath.substring(0, resourcePath.lastIndexOf('/'))
-        : '';
-      const resolvedPath = this.resolvePath(cssDir, fontUrl);
+      const resolvedPath = resolvePath(resourcePath, fontUrl);
 
       const manifestItem = packageDoc.manifest.find((item) => item.href === resolvedPath);
       if (manifestItem && !BLESSED_FONT_TYPES.has(manifestItem.mediaType)) {
@@ -540,33 +537,6 @@ export class CSSValidator {
       }
     }
     return null;
-  }
-
-  /**
-   * Resolve a relative path from a base path
-   */
-  private resolvePath(basePath: string, relativePath: string): string {
-    // Handle absolute paths
-    if (relativePath.startsWith('/')) {
-      return relativePath.substring(1);
-    }
-
-    // Split paths into segments
-    const baseSegments = basePath.split('/').filter(Boolean);
-    const relativeSegments = relativePath.split('/');
-
-    // Start from base directory
-    const resultSegments = [...baseSegments];
-
-    for (const segment of relativeSegments) {
-      if (segment === '..') {
-        resultSegments.pop();
-      } else if (segment !== '.' && segment !== '') {
-        resultSegments.push(segment);
-      }
-    }
-
-    return resultSegments.join('/');
   }
 
   /**

@@ -9,7 +9,7 @@ import { SKMValidator } from '../skm/validator.js';
 import { SMILValidator } from '../smil/validator.js';
 import { MessageId, pushMessage } from '../messages/index.js';
 import { isCoreMediaType, type PackageDocument } from '../opf/types.js';
-import { resolvePath } from '../opf/validator.js';
+
 import type { ResourceRegistry } from '../references/registry.js';
 import type { Reference } from '../references/types.js';
 import { ReferenceType } from '../references/types.js';
@@ -18,6 +18,7 @@ import { isRelativeURL, parseURL, resolveManifestHref } from '../references/url.
 import type { ReferenceValidator } from '../references/validator.js';
 import type { ValidationContext } from '../types.js';
 import { parseDoctype } from '../util/doctype.js';
+import { dirname, resolvePath } from '../util/path.js';
 import {
   EPUB_SSV_ALL,
   EPUB_SSV_DEPRECATED,
@@ -518,7 +519,7 @@ export class ContentValidator {
     }
 
     const opfPath = context.opfPath ?? '';
-    const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+    const opfDir = dirname(opfPath);
 
     // Process CSS files first so cssWithRemoteResources is populated before XHTML checks
     if (refValidator) {
@@ -842,7 +843,7 @@ export class ContentValidator {
       return;
     }
 
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
 
     try {
       const root = doc.root;
@@ -1122,7 +1123,7 @@ export class ContentValidator {
       });
     }
 
-    const cssDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const cssDir = dirname(path);
     for (const ref of result.references) {
       if (ref.type === 'font') {
         if (ref.url.startsWith('http://') || ref.url.startsWith('https://')) {
@@ -2270,10 +2271,8 @@ export class ContentValidator {
 
   private collectTocLinks(context: ValidationContext, path: string, tocNav: XmlElement): void {
     const HTML_NS = { html: 'http://www.w3.org/1999/xhtml' };
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
-    const opfDir = context.opfPath?.includes('/')
-      ? context.opfPath.substring(0, context.opfPath.lastIndexOf('/'))
-      : '';
+    const docDir = dirname(path);
+    const opfDir = dirname(context.opfPath ?? '');
 
     const tocAnchors = tocNav.find('.//html:a[@href]', HTML_NS);
     if (context.contentFeatures) {
@@ -2511,7 +2510,7 @@ export class ContentValidator {
     const linkElements = root.find('.//html:link[@rel and @href]', {
       html: 'http://www.w3.org/1999/xhtml',
     });
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
     for (const linkElem of linkElements) {
       const rel = this.getAttribute(linkElem as XmlElement, 'rel');
       const href = this.getAttribute(linkElem as XmlElement, 'href');
@@ -3640,9 +3639,7 @@ export class ContentValidator {
       if (!srcAttr) continue;
 
       const src = srcAttr;
-      const opfDir = context.opfPath?.includes('/')
-        ? context.opfPath.substring(0, context.opfPath.lastIndexOf('/'))
-        : '';
+      const opfDir = dirname(context.opfPath ?? '');
 
       let fullPath = src;
       if (opfDir && !src.startsWith('http://') && !src.startsWith('https://')) {
@@ -3759,10 +3756,8 @@ export class ContentValidator {
     }
 
     const packageDoc = context.packageDocument;
-    const opfDir = context.opfPath?.includes('/')
-      ? context.opfPath.substring(0, context.opfPath.lastIndexOf('/'))
-      : '';
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const opfDir = dirname(context.opfPath ?? '');
+    const docDir = dirname(path);
 
     const manifestByPath = packageDoc
       ? new Map(packageDoc.manifest.map((m) => [resolveManifestHref(opfDir, m.href), m]))
@@ -4484,7 +4479,7 @@ export class ContentValidator {
     isNavDocument = false,
     remoteXmlBase: string | null = null,
   ): void {
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
 
     // Build a map from anchor line numbers to nav-specific reference types
     // when processing a nav document, to distinguish toc/page-list links from regular hyperlinks
@@ -4719,7 +4714,7 @@ export class ContentValidator {
     refValidator: ReferenceValidator,
     remoteXmlBase: string | null = null,
   ): void {
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
 
     // Detect <base href> with remote URL; fall back to xml:base
     const baseElem = root.get('.//html:base[@href]', { html: 'http://www.w3.org/1999/xhtml' });
@@ -4783,7 +4778,7 @@ export class ContentValidator {
     opfDir: string,
     refValidator: ReferenceValidator,
   ): void {
-    const cssDir = cssPath.includes('/') ? cssPath.substring(0, cssPath.lastIndexOf('/')) : '';
+    const cssDir = dirname(cssPath);
 
     // Remove CSS comments first to avoid matching imports inside comments
     const cleanedCSS = cssContent.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -4833,7 +4828,7 @@ export class ContentValidator {
     refValidator: ReferenceValidator,
     registry?: ResourceRegistry,
   ): void {
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
     const ns = { html: 'http://www.w3.org/1999/xhtml' };
 
     // Pre-compute which picture elements have CMT source siblings for intrinsic fallback
@@ -4999,7 +4994,7 @@ export class ContentValidator {
     opfDir: string,
     refValidator: ReferenceValidator,
   ): void {
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
 
     const mathElements = root.find('.//math:math[@altimg]', {
       math: 'http://www.w3.org/1998/Math/MathML',
@@ -5036,7 +5031,7 @@ export class ContentValidator {
     opfDir: string,
     refValidator: ReferenceValidator,
   ): void {
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
 
     const scripts = root.find('.//html:script[@src]', { html: 'http://www.w3.org/1999/xhtml' });
     for (const script of scripts) {
@@ -5075,7 +5070,7 @@ export class ContentValidator {
     opfDir: string,
     refValidator: ReferenceValidator,
   ): void {
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
 
     // Elements that can have cite attribute: blockquote, q, ins, del
     const citeElements = [
@@ -5136,7 +5131,7 @@ export class ContentValidator {
     refValidator: ReferenceValidator,
     registry?: ResourceRegistry,
   ): void {
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
     const ns = { html: 'http://www.w3.org/1999/xhtml' };
 
     // Process audio and video elements together to detect intrinsic source fallback.
@@ -5278,7 +5273,7 @@ export class ContentValidator {
     refValidator: ReferenceValidator,
     registry?: ResourceRegistry,
   ): void {
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
     const ns = { html: 'http://www.w3.org/1999/xhtml' };
 
     const addRef = (
@@ -5398,7 +5393,7 @@ export class ContentValidator {
     refValidator: ReferenceValidator,
     registry?: ResourceRegistry,
   ): void {
-    const docDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+    const docDir = dirname(path);
     const ns = { html: 'http://www.w3.org/1999/xhtml' };
 
     const BLESSED_IMAGE_TYPES = new Set([

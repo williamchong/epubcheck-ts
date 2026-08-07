@@ -5,7 +5,8 @@
 import type { XmlDocument, XmlElement } from 'libxml2-wasm';
 import { getXmlDocument } from '../util/xml-engine.js';
 import { MessageId, pushMessage } from '../messages/index.js';
-import { resolvePath, tryDecodeUriComponent } from '../opf/validator.js';
+import { tryDecodeUriComponent } from '../references/url.js';
+import { resolvePath } from '../util/path.js';
 import type { ResourceRegistry } from '../references/registry.js';
 import { isRemoteURL } from '../references/url.js';
 import type { ValidationContext } from '../types.js';
