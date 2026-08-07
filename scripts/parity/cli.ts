@@ -203,25 +203,28 @@ async function measure(
 
 async function cmdCorpus(items: CorpusItem[]): Promise<void> {
   const { rows, cacheSummary } = await measure(items, CACHE_DIR);
+  // check/corpus gate on their result, or CI cannot use them. Set before the
+  // --json return: the rows carry the crashes either way, but a caller reading
+  // only the exit code would see success.
+  process.exitCode = partition(rows).failed.length ? 1 : 0;
   if (opts.json) {
     printJson(rows);
     return;
   }
   printDisagreements(rows);
   printTotals(rows, cacheSummary, scopeOf(opts.usage));
-  // check/corpus gate on their result, or CI cannot use them.
-  process.exitCode = partition(rows).failed.length ? 1 : 0;
 }
 
 async function cmdStandalone(): Promise<void> {
   const items = await standaloneCorpus();
   const { rows, cacheSummary } = await measure(items, STANDALONE_CACHE_DIR);
+  const { ok, failed } = partition(rows);
+  process.exitCode = failed.length ? 1 : 0;
   if (opts.json) {
     printJson(rows);
     return;
   }
 
-  const { ok, failed } = partition(rows);
   printBreakdown(
     'mode',
     STANDALONE_MODES.map(({ mode, extension }) => ({
@@ -230,7 +233,6 @@ async function cmdStandalone(): Promise<void> {
     })),
   );
   printTotals(rows, cacheSummary, scopeOf(opts.usage));
-  process.exitCode = failed.length ? 1 : 0;
 }
 
 async function cmdCheck(items: CorpusItem[]): Promise<void> {
