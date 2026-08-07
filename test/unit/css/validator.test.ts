@@ -246,8 +246,10 @@ describe('CSSValidator', () => {
         ],
       });
 
+      // The href is relative to the OPF at OEBPS/content.opf, so the stylesheet
+      // using it sits under OEBPS/ too.
       const css = '@font-face { src: url("font.woff"); }';
-      validator.validate(context, css, 'styles/test.css');
+      validator.validate(context, css, 'OEBPS/styles/test.css');
 
       expect(
         context.messages.some((m) => m.id === 'CSS-007' && m.message.includes('media type')),

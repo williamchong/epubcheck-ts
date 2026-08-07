@@ -4,8 +4,9 @@
 
 import { type Atrule, type CssNode, type Declaration, type Url, parse, walk } from 'css-tree';
 import { MessageId, pushMessage } from '../messages/index.js';
+import { resolveManifestHref } from '../references/url.js';
 import type { ValidationContext } from '../types.js';
-import { resolvePath } from '../util/path.js';
+import { dirname, resolvePath } from '../util/path.js';
 
 interface ParseErrorWithLocation {
   formattedMessage: string;
@@ -498,9 +499,14 @@ export class CSSValidator {
     // Also check if the manifest has this file with a non-standard type
     const packageDoc = context.packageDocument;
     if (packageDoc) {
+      // resolvePath yields a container-relative path; manifest hrefs are
+      // relative to the OPF, so they have to be lifted before comparing.
       const resolvedPath = resolvePath(resourcePath, fontUrl);
+      const opfDir = dirname(context.opfPath ?? '');
 
-      const manifestItem = packageDoc.manifest.find((item) => item.href === resolvedPath);
+      const manifestItem = packageDoc.manifest.find(
+        (item) => resolveManifestHref(opfDir, item.href) === resolvedPath,
+      );
       if (manifestItem && !BLESSED_FONT_TYPES.has(manifestItem.mediaType)) {
         pushMessage(context.messages, {
           id: MessageId.CSS_007,

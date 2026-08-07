@@ -180,6 +180,49 @@ describe('CSSValidator', () => {
       const result = validator.validate(context, css, 'OEBPS/styles.css');
       expect(result.references).toHaveLength(2);
     });
+
+    // The url() resolves to a container path while manifest hrefs are relative
+    // to the OPF, so the lookup only agrees once the href is lifted. A .woff
+    // extension maps to a blessed type, isolating the manifest branch: any
+    // CSS-007 here came from the media type the manifest declares.
+    const withManifest = (opfPath: string, href: string): ValidationContext => ({
+      ...createContext(),
+      opfPath,
+      packageDocument: {
+        version: '3.0',
+        uniqueIdentifier: 'uid',
+        dcElements: [],
+        metaElements: [],
+        linkElements: [],
+        manifest: [{ id: 'f1', href, mediaType: 'application/x-font-bad' }],
+        spine: [],
+        guide: [],
+        collections: [],
+      },
+    });
+
+    it('should report a non-standard manifest media type with the OPF in a subdirectory (CSS-007)', () => {
+      context = withManifest('OEBPS/content.opf', 'fonts/custom.woff');
+      const css = '@font-face { font-family: "T"; src: url("../fonts/custom.woff"); }';
+      validator.validate(context, css, 'OEBPS/css/main.css');
+      const messages = context.messages.filter((m) => m.id === 'CSS-007');
+      expect(messages).toHaveLength(1);
+      expect(messages[0]?.message).toContain('application/x-font-bad');
+    });
+
+    it('should report a non-standard manifest media type with the OPF at the container root (CSS-007)', () => {
+      context = withManifest('content.opf', 'fonts/custom.woff');
+      const css = '@font-face { font-family: "T"; src: url("../fonts/custom.woff"); }';
+      validator.validate(context, css, 'css/main.css');
+      expect(context.messages.filter((m) => m.id === 'CSS-007')).toHaveLength(1);
+    });
+
+    it('should not match a manifest href that only coincides before resolution', () => {
+      context = withManifest('OEBPS/content.opf', 'OEBPS/fonts/custom.woff');
+      const css = '@font-face { font-family: "T"; src: url("../fonts/custom.woff"); }';
+      validator.validate(context, css, 'OEBPS/css/main.css');
+      expect(context.messages.filter((m) => m.id === 'CSS-007')).toHaveLength(0);
+    });
   });
 
   describe('CSS result structure', () => {
