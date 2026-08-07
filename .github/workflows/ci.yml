@@ -42,3 +42,31 @@ jobs:
 
       - name: Run packaging tests
         run: npm run test:packaging
+
+  # Guards agreement with Java EPUBCheck, which the test suite cannot see: a
+  # ported scenario with a subtly wrong expectation passes forever, and a new
+  # check that fires where Java stays silent breaks no test at all.
+  #
+  # Deliberately no JVM here. Java's answers for every fixture are committed
+  # under test/parity/java/, keyed by content, so this recomputes only the
+  # TypeScript side and diffs it against the recorded oracle. Installing Java to
+  # recompute an answer the repository already contains would buy nothing except
+  # a slower job and a second thing to keep pinned to 5.3.0.
+  parity:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check parity against the committed baseline
+        run: npm run parity:check

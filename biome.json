@@ -19,7 +19,7 @@
     "enabled": false
   },
   "files": {
-    "ignore": ["dist/", "coverage/", "node_modules/", "schemas/", "*.d.ts"]
+    "ignore": ["dist/", "coverage/", "node_modules/", "schemas/", "*.d.ts", "test/parity/"]
   },
   "javascript": {
     "formatter": {

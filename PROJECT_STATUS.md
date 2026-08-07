@@ -26,18 +26,18 @@ Per-component estimates. For measured agreement with Java, see [Measured Parity]
 
 Test pass rate measures whether ported scenarios still pass; it cannot see a check that fires when Java stays silent, nor missing location data. These figures come from running both engines over identical inputs and diffing the emitted message IDs. **Java is the oracle.**
 
-Baseline: **EPUBCheck 5.3.0**, measured 2026-08-05.
+Baseline: **EPUBCheck 5.3.0**, measured 2026-08-07 by `npm run parity`. Every row below is reproducible with that command; none are estimates.
 
-### Packaged EPUBs (`test/fixtures/`, n=758)
+### Packaged EPUBs (`test/fixtures/`, n=763)
 
-| Metric | Agreement |
-|---|---|
-| **Valid/invalid verdict** | **96.7%** |
-| Message-ID set, errors + warnings only | 88.3% |
-| Message-ID set, all severities | 73.7% |
-| Exact match (IDs + counts + severity) | 67.2% |
+| Metric | Agreement | |
+|---|---|---|
+| **Valid/invalid verdict** | **96.7%** | 738/763 |
+| Message-ID set, errors + warnings only | 88.5% | 675/763 |
+| Message-ID set, all severities | 74.0% | 565/763 |
+| Exact match (IDs + counts, all severities) | 67.4% | 514/763 |
 
-Severity assignment agrees on **100%** of messages — zero mismatches across the corpus.
+Severity assignment agrees on **100%** of paired messages (791/791) — zero mismatches across the corpus.
 
 ### Standalone single-file modes (Java's own fixtures, n=1286)
 
@@ -48,28 +48,47 @@ Severity assignment agrees on **100%** of messages — zero mismatches across th
 | `--mode svg` | 52 | 88.5% | 92.3% |
 | **Total** | **1286** | **94.6%** | **97.6%** |
 
+Regenerate with `npm run parity:standalone`, which needs `../epubcheck` checked out as a sibling. The corpus is every `.opf`/`.xhtml`/`.svg` under `epub3/`, excluding `test-files-unused/`. Severity agrees on 100% of paired messages; 61.9% of messages carry a line (Java: 97.1%), and where both engines locate the same message, 79.0% of lines match.
+
 ### Real-world EPUBs (n=5)
 
 5/5 verdict agreement; 4/5 byte-identical message sets. The fifth differs only in report shape (see USAGE dedup under Known Issues). Guarded by `test/integration/real-world.test.ts`.
 
 ### Message locations
 
-**62.9%** of messages carry a line number (Java: 81.5%). Where both engines report the same ID on the same file, **87.2%** of line numbers match exactly; the rest are attribution or convention differences, not arithmetic. Messages still lacking a line come mostly from `RSC-005` rules and from document-level checks where nothing has a position — `OPF-003` has no line in Java either.
+**73.6%** of messages carry a line number (Java: 81.6%), measured across all severities. Where both engines report the same ID on the same file, **88.4%** of line numbers match exactly; the rest are attribution or convention differences, not arithmetic. Messages still lacking a line come mostly from `RSC-005` rules and from document-level checks where nothing has a position — `OPF-003` has no line in Java either.
+
+Java encodes "no line" as `-1`, not as a missing field. Counting that as a location pins the Java figure at exactly 100%, which is how the harness's first run was caught being wrong; `scripts/parity/engine.ts` normalizes it. A location metric that cannot fall below 100% is not measuring anything.
 
 ### Reading these numbers
 
 - **Verdict agreement** is what a user feels: do both tools call the same file valid or invalid?
-- **Message-ID agreement** is stricter: do they report the *same* problems?
-- **Exact match** additionally requires identical counts, so it is depressed by the USAGE dedup difference below and is the least meaningful of the three.
+- **Message-ID agreement** is stricter: do they report the *same* problems? It ignores how many times each ID fired.
+- **Exact match** additionally requires identical counts, so it is depressed by the USAGE dedup difference below and is the least meaningful of the three. A fixture where this port reports `RSC-005` twice and Java once agrees on message-ID and disagrees on exact match — which is most of the ~21-point gap between those rows.
 
 ### Method
 
-Run both engines over the same bytes and diff. Java: `epubcheck <file> --json out.json -u`, or `--mode <m> -v 3.0` for standalone fixtures. TS: the library API with `includeUsage`/`includeInfo`. Normalize Java's `HTM_060b` form to `HTM-060b`, then compare per-fixture message-ID multisets.
+Every figure above is produced by the checked-in harness in `scripts/parity/` — not by hand:
+
+```bash
+npm run parity              # packaged corpus: verdict, ID, severity and location figures
+npm run parity:standalone   # the single-file table (needs ../epubcheck)
+npm run parity:check        # fail if any fixture regressed against the committed baseline
+npm run parity:update       # rewrite the baseline after an intended change
+```
+
+Both engines run over the same bytes and the message-ID multisets are diffed per fixture, after normalizing Java's `HTM_060b` form to `HTM-060b`. Java is invoked with `-u` always and the extra severities are filtered at comparison time — verified across 24 fixtures spanning the corpus, `-u` leaves the non-USAGE message set byte-identical, so one cached answer serves both the default and `--usage` comparisons.
+
+Java's answers are committed under `test/parity/java/`, keyed on a hash of its version, the fixture path, the argv **and the fixture's bytes**. That is what makes a warm run seconds instead of ~11 minutes, and what makes `npm run parity:check` runnable in CI with no JVM. It is also a correctness property, not just a speed one: an earlier throwaway harness keyed on path alone, which would have served pre-`4b855e9` results for the rewritten placeholder images and reported an improvement that never happened.
+
+Per-fixture state lives in `test/parity/baseline.json`, so a change that fixes four fixtures and breaks three shows up as both, rather than as a flat percentage that barely moves.
 
 Three corpus caveats worth knowing before trusting a delta:
 - Roughly half of `test/fixtures/` are synthetic EPUBs wrapping Java's *standalone* fixtures, with fabricated stub assets. Java flags that scaffolding, which inflates apparent gaps; the standalone table above avoids this entirely. This produced all 20 of the former `PKG-021` gaps — `build-fixtures.sh` wrote a 22-byte header-only JPEG and a bare 8-byte PNG signature, neither carrying the dimensions `ImageIO` needs. Both are now real 1×1 images in `test/fixtures/assets/`, and `repair-stub-images.sh` fixed the 22 EPUBs built before that change. When adding a fixture asset, make it a *complete* file of its type, not just magic bytes.
 - Java auto-detects the publication version; a differential run must not pass an explicit version, or it will mask version-gating bugs.
-- Standalone fixtures must be addressed by **basename**, with the bytes read from wherever they live. Passing a path-qualified name makes every sibling `href` resolve outside the notional container, so `RSC-026` fires on nearly every OPF and the mode's exact-match score collapses to near zero. That is a measurement artifact, not a regression.
+- Standalone fixtures must be addressed by **basename**, with the bytes read from wherever they live. Passing a path-qualified name makes every sibling `href` resolve outside the notional container, so `RSC-026` fires on nearly every OPF and the mode's exact-match score collapses to near zero. That is a measurement artifact, not a regression. `scripts/parity/corpus.ts` does this on both sides; it is the single easiest way to get these numbers catastrophically wrong.
+
+The standalone corpus is every `.opf`/`.xhtml`/`.svg` under `../epubcheck/src/test/resources/epub3/`, excluding `test-files-unused/` — fixtures Java's own suite stopped referencing. That is 496/757/52 minus 7/12/0, giving the 489 / 745 / 52 above.
 
 ---
 
@@ -79,9 +98,11 @@ Three corpus caveats worth knowing before trusting a delta:
 
 | Category | Tests | Passed | Skipped |
 |----------|-------|--------|---------|
-| Unit Tests | 471 | 469 | 2 |
+| Unit Tests | 488 | 486 | 2 |
 | Integration Tests | 947 | 935 | 12 |
-| **Total** | **1418** | **1404** | **14** |
+| **Total** | **1435** | **1421** | **14** |
+
+Unit tests include 17 for the parity harness itself (`test/unit/parity.test.ts`) — cache keying, the ID-set vs ID-count distinction, and the location metric. The harness gates CI, so a silent bug there would not make a check wrong; it would make every check unverifiable while still printing a confident percentage.
 
 Plus a separate packaging regression suite (`npm run test:packaging`, 3 tests) validating built artifacts; runs in CI and on prepublish.
 
@@ -184,8 +205,8 @@ Core EPUB 3 per-feature: 00-minimal 100%, 02-conformance 100%, 03-resources 97%,
 
 Ordered by measured impact on agreement with Java:
 
-1. **Remaining false positives** — 142 error/warning occurrences across 41 IDs that Java does not emit, led by `RSC-005` (45), `RSC-017` (10) and `RSC-006` (9). At usage severity `OPF-097`, `OPF-003` and `OPF-088` dominate. These cost more agreement than any unimplemented check.
-2. **Remaining coverage gaps** — 93 error/warning occurrences across 23 IDs Java emits and we do not, more than half of them `RSC-005` (50), then `RSC-007` (10). Nothing else reaches five.
+1. **Remaining false positives** — 141 error/warning occurrences across 40 IDs that Java does not emit, led by `RSC-005` (45), `RSC-017` (10) and `RSC-006` (9). At usage severity `OPF-088` (495), `OPF-097` (78) and `OPF-003` (55) dominate. These cost more agreement than any unimplemented check.
+2. **Remaining coverage gaps** — 90 error/warning occurrences across 20 IDs Java emits and we do not, more than half of them `RSC-005` (50), then `RSC-007` (10). Nothing else reaches five.
 3. **Line numbers for `RSC-005`** — ~130 messages still carry no line; the OPF model now records positions, so the remaining work is per-rule attribution.
 4. **Advanced media** — deep format validation beyond magic numbers (MED-003/004, PKG-021/022, OPF-051/057). No fixture exercises this any more now that the stub images are real, so it carries no measurable parity cost — but a truncated image in a real book still goes unflagged, and `PKG-021` currently fires only for files under 4 bytes.
 5. **Remaining accessibility** — ACC-008/013/015/016/017 (all suppressed by default; low real-world impact).

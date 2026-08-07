@@ -12,19 +12,48 @@ validator straight out of `src/` (no build step) and can diff the result
 against the Java `epubcheck` CLI — the comparison every parity number in
 `PROJECT_STATUS.md` is measured with.
 
+The driver is a CLI over `scripts/parity/`, which holds the actual comparison
+engine and is shared with `npm run parity`. Change validator behaviour and
+measure it here; change *how* it is measured, and the file to edit is under
+`scripts/parity/`, not this one.
+
 All paths below are relative to the repo root.
 
 ## Prerequisites
 
 Node (repo pins 22 in `.nvmrc`; verified here on v24.15.0) and the Java
-EPUBCheck CLI, which `diff`/`corpus` shell out to:
+EPUBCheck CLI, which `diff`/`corpus` shell out to on a cache miss:
 
 ```bash
 epubcheck --version   # → EPUBCheck v5.3.0
 ```
 
 If it is missing, `brew install epubcheck` puts it on PATH. `check` works
-without it; `diff` and `corpus` exit 2 with a message naming the fix.
+without it, and so does anything already answered by the committed cache;
+an uncached `diff`/`corpus` exits 2 with a message naming the fix.
+
+## The Java cache
+
+Java costs ~1.5s per book — ~11 minutes for the 763-fixture corpus, against ~4s
+for the TypeScript side. Its answers are therefore committed under
+`test/parity/java/`, keyed on a hash of the EPUBCheck version, the fixture path,
+the Java argv, **and the fixture's bytes**. A warm `corpus` run is seconds
+rather than minutes.
+
+Two consequences worth holding onto:
+
+- **Editing a fixture invalidates its entry automatically.** The key covers
+  content, so a rewritten fixture misses and re-runs Java. An earlier throwaway
+  version of this harness keyed on the path alone and would happily have served
+  pre-`4b855e9` results for the rewritten placeholder images — reporting a
+  parity improvement that never happened.
+- **Every run prints `cache: N hit / N miss / N written`.** If you are unsure
+  whether a number is fresh, that line answers it. `--refresh` re-runs Java and
+  overwrites; `--no-cache` bypasses the store entirely.
+
+`npm run parity:update` prunes as it goes (the npm script already passes
+`--prune`); a fixture rewrite orphans its old entry, since the new bytes hash to
+a different filename rather than overwriting the old one.
 
 ## Setup
 
@@ -61,6 +90,8 @@ you invoked it wrong (unknown flag, missing path, no Java CLI, missing build).
 | `--mode <m>` | `exp` \| `opf` \| `xhtml` \| `svg` \| `nav` \| `mo`. Inferred from the extension when omitted; passing it explicitly forces single-file handling, which is the only way to reach `nav` (an ordinary `.xhtml`). |
 | `--jobs <n>` | `diff`/`corpus` concurrency (default 4 — measured best on this machine; 8 was not faster). |
 | `--limit <n>` | `corpus`: stop after N fixtures. |
+| `--no-cache` | Never read or write the Java cache; always shell out. |
+| `--refresh` | Re-run Java and overwrite cached entries. Use after `brew upgrade epubcheck`. |
 
 The path selects the entry point, so you do not have to: a **directory** is an
 expanded EPUB (`validateExpanded`), a file whose extension names a standalone
@@ -95,18 +126,42 @@ Over a directory, with agreement percentages in the same shape the commit
 messages quote:
 
 ```bash
-npx tsx .claude/skills/run-epubcheck-ts/driver.mjs corpus test/fixtures/invalid --jobs 8 --limit 80
+npx tsx .claude/skills/run-epubcheck-ts/driver.mjs corpus test/fixtures/invalid --jobs 8 --limit 12
 # → DIFF  test/fixtures/invalid/content/content-css-syntax-error.epub  +java CSS-008
-#   VERDICT test/fixtures/invalid/content/foreignObject-html-invalid-error-svg.epub  +java RSC-005
 #   …
-#   80 compared, 0 crashed
-#   verdict agreement      98.8%  (79/80)
-#   error/warning ID exact 71.3%  (57/80)
+#   12 compared, 0 crashed  cache: 12 hit / 0 miss / 0 written
+#   verdict agreement        100.0%  (12/12)
+#   message-ID set (err+warn) 83.3%  (10/12)
+#   IDs + counts (err+warn)   75.0%  (9/12)
+#   severity agreement       100.0%  (12/12)
+#   line agreement            77.8%  (7/9)
 ```
 
-Java costs ~1.5s per book, so a `corpus` run is the slow one — 80 fixtures at
-`--jobs 8` took ~60s. `test/fixtures` holds 763 `.epub` files; budget ~10min
-for the whole thing, or use `--limit`.
+`message-ID set` ignores how many times an ID fired; `IDs + counts` does not.
+A fixture where this port reports `RSC-005` twice and Java once agrees on the
+first and disagrees on the second — worth knowing before reading a gap as a
+missing check.
+
+With a warm cache that run takes ~2s; cold it took ~10s. The full 763-fixture
+corpus is ~11 minutes cold and well under a minute warm, so `--limit` is no
+longer the only way to get an answer quickly.
+
+### Measuring the whole corpus
+
+The driver is for one-off questions. For the corpus figures and the regression
+gate, use the npm scripts — same engine, plus the committed baseline:
+
+| command | what it does |
+|---|---|
+| `npm run parity` | Full packaged corpus with all metrics. |
+| `npm run parity:check` | Same, then **fails** if any fixture regressed against `test/parity/baseline.json`. Improvements are reported, not failed. |
+| `npm run parity:update` | Rewrites the baseline and prunes orphaned cache entries. Run it in the same commit that changes parity. |
+| `npm run parity:standalone` | Java's own single-file fixtures (`--mode opf/xhtml/svg`), which need `../epubcheck`. |
+
+`parity:check` is what CI runs, and it needs no JVM: it recomputes only the
+TypeScript side and diffs against the committed oracle. A fixture that changed
+without `parity:update` being re-run fails there by name rather than silently
+measuring nothing.
 
 ## Run (human path)
 
@@ -146,10 +201,12 @@ npm run fetch:real-epubs   # → 0 downloaded, 5 already cached
 
 - **Most fixtures look clean until you pass `-u`.** USAGE-severity messages
   are suppressed by default, and a large share of the `invalid/` fixtures
-  assert a USAGE message. `mediaoverlays-text-reading-order-error.epub`
-  reports nothing at all without `-u`; the integration test that covers it
-  passes `{ includeUsage: true }`. If a fixture "produces no messages,"
-  re-run with `-u` before concluding anything.
+  assert a USAGE message; the integration test covering
+  `mediaoverlays-text-reading-order-error.epub` passes `{ includeUsage: true }`.
+  The engine now always *collects* every severity and filters at display time,
+  so the summary line still counts what it hides — that fixture prints
+  `0 fatal / 0 error / 0 warning / 0 info / 3 usage` with no message lines
+  above it. A non-zero tail on an otherwise empty report means re-run with `-u`.
 - **Java writes IDs with an underscore, this port uses a hyphen** — `MED_015`
   vs `MED-015`. The driver normalises to the hyphen form; any hand-rolled
   comparison has to do the same or every ID will look like a mismatch.
@@ -183,8 +240,14 @@ npm run fetch:real-epubs   # → 0 downloaded, 5 already cached
   on this driver with *"was not found by the project service"* — the config
   is `strictTypeChecked` and demands a tsconfig project for every file it
   parses. Biome is the opposite: `npm run format` **does** reformat the
-  driver (95 files, not 94), so run it after editing. Pointing biome at the
-  path directly reports "Checked 0 files" — only the recursive run sees it.
+  driver, so run it after editing. Pointing biome at the path directly
+  reports "Checked 0 files" — only the recursive run sees it.
+  This asymmetry is exactly why the comparison engine lives in
+  `scripts/parity/` and not here: code that every published parity figure
+  depends on should not sit in the one directory the linter cannot see.
+- **`biome.json` ignores `test/parity/`.** The committed Java cache is 763
+  machine-written JSON files; without the ignore, `npm run format` rewrites
+  every one of them and buries the real diff.
 
 ## Troubleshooting
 

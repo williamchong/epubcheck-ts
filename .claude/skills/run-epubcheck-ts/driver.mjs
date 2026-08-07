@@ -4,22 +4,47 @@
  *
  * Runs the validator straight from `src/` through tsx, so a change to a
  * validator is observable without a build step, and diffs the result against
- * the Java EPUBCheck CLI — the comparison every parity claim in this repo is
- * measured with.
+ * the Java EPUBCheck CLI.
+ *
+ * The comparison engine, the corpus definitions and the reporting all live in
+ * `scripts/parity/` -- typechecked, linted, and shared with `npm run parity`.
+ * This file is the agent-facing CLI over them and nothing more: a measurement
+ * rig cannot afford two implementations of its own oracle.
  *
  * Run with no arguments for the command and flag list (see usage() below).
  */
 
 import { execFile } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
-import { dirname, extname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 
+import { JavaCache } from '../../../scripts/parity/cache.js';
+import { compare, isCounted } from '../../../scripts/parity/compare.js';
+import { compareItem, packagedCorpus, partition } from '../../../scripts/parity/corpus.js';
+import {
+  ROOT,
+  javaVersion,
+  mapLimit,
+  resolveInput,
+  runJava,
+  runTs,
+} from '../../../scripts/parity/engine.js';
+import {
+  GREEN,
+  GREY,
+  OFF,
+  RED,
+  YELLOW,
+  printDisagreements,
+  printJson,
+  printTotals,
+  scopeOf,
+} from '../../../scripts/parity/report.js';
+
 const execFileAsync = promisify(execFile);
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const MAX_BUFFER = 64 * 1024 * 1024;
+const CACHE_DIR = join(ROOT, 'test/parity/java');
 
 /** Exit 2 for "you invoked this wrong", distinct from 1 for "the EPUB is bad". */
 function fail(message) {
@@ -32,7 +57,7 @@ function fail(message) {
 const argv = process.argv.slice(2);
 const command = argv.shift();
 const paths = [];
-const opts = { jobs: 4 };
+const opts = { jobs: 4, cache: 'use', usage: false, dist: false, json: false };
 
 // `cli` forwards its tail to bin/epubcheck.js verbatim. That has to happen before
 // the loop below, which would otherwise eat the flags the built CLI defines for
@@ -68,6 +93,12 @@ if (command !== 'cli') {
       case '--json':
         opts.json = true;
         break;
+      case '--no-cache':
+        opts.cache = 'off';
+        break;
+      case '--refresh':
+        opts.cache = 'refresh';
+        break;
       case '--version':
         opts.version = flagValue(arg);
         break;
@@ -92,226 +123,35 @@ if (command !== 'cli') {
   }
 }
 
-// ------------------------------------------------------------------ TS runner
+const runOptions = () => ({
+  version: opts.version,
+  profile: opts.profile,
+  mode: opts.mode,
+});
 
-/**
- * `src/index.ts` is the layer PRs touch, so it is the default. `--dist` swaps in
- * the built bundle to check that a change survives tsup (the CJS build has
- * broken independently of source before — see the 0.6.2 lazy-import fix).
- */
-let epubCheckPromise;
-function loadEpubCheck() {
-  epubCheckPromise ??= (async () => {
-    const spec = opts.dist ? join(ROOT, 'dist/index.js') : join(ROOT, 'src/index.ts');
-    if (opts.dist && !existsSync(spec)) fail('missing dist/index.js — run `npm run build` first');
-    return (await import(spec)).EpubCheck;
-  })();
-  return epubCheckPromise;
+/** Shared with `npm run parity`, so a `diff` here costs no Java after the first run. */
+async function makeCache() {
+  if (opts.cache === 'off') return undefined;
+  return new JavaCache(CACHE_DIR, await javaVersion(), opts.cache);
 }
 
-function validateOptions() {
-  const o = {};
-  if (opts.usage) o.includeUsage = true;
-  if (opts.version) o.version = opts.version;
-  if (opts.profile) o.profile = opts.profile;
-  if (opts.mode) o.mode = opts.mode;
-  return o;
-}
-
-/**
- * Three entry points, picked from the path so the caller does not have to: a
- * directory is an expanded EPUB, a file whose extension names a standalone
- * content type is single-file, anything else is a zipped publication. An
- * explicit `--mode` wins, which is the only way to reach `nav` (indistinguishable
- * from any other .xhtml) and the modes with no extension of their own.
- */
-const SINGLE_FILE_MODES = {
-  '.xhtml': 'xhtml',
-  '.html': 'xhtml',
-  '.svg': 'svg',
-  '.opf': 'opf',
-  '.smil': 'mo',
-};
-
-function resolveInput(file) {
-  if (!existsSync(file)) fail(`no such file or directory: ${file}`);
-  if (statSync(file).isDirectory()) return { kind: 'expanded', mode: opts.mode ?? 'exp' };
-
-  const byExtension = SINGLE_FILE_MODES[extname(file).toLowerCase()];
-  const mode = opts.mode ?? byExtension;
-  // `--mode exp` on a file is meaningless; every other explicit mode names a
-  // standalone content type, so it forces single-file even for an odd extension.
-  const single = mode !== undefined && mode !== 'exp' && (byExtension !== undefined || opts.mode);
-  return { kind: single ? 'single' : 'zipped', mode };
-}
-
-async function readTree(dir) {
-  const files = new Map();
-  for (const entry of await readdir(dir, { withFileTypes: true, recursive: true })) {
-    if (!entry.isFile()) continue;
-    const abs = join(entry.parentPath, entry.name);
-    // OCF paths are '/'-separated by spec; without this the map keys would be
-    // backslashed on Windows and every manifest lookup would miss. Matches
-    // bin/epubcheck.ts and test/integration/conformance.integration.test.ts.
-    files.set(relative(dir, abs).split(sep).join('/'), new Uint8Array(await readFile(abs)));
-  }
-  return files;
-}
-
-async function runTs(file, { kind, mode }) {
-  const EpubCheck = await loadEpubCheck();
-  const o = { ...validateOptions(), ...(mode ? { mode } : {}) };
-
-  let result;
-  if (kind === 'expanded') {
-    result = await EpubCheck.validateExpanded(await readTree(file), o);
-  } else if (kind === 'single') {
-    result = await EpubCheck.validateSingleFile(await readFile(file), file, o);
-  } else {
-    result = await EpubCheck.validate(await readFile(file), o, file);
-  }
-
-  return {
-    valid: result.valid,
-    counts: {
-      fatal: result.fatalCount,
-      error: result.errorCount,
-      warning: result.warningCount,
-      info: result.infoCount,
-      usage: result.usageCount,
-    },
-    version: result.version,
-    elapsedMs: result.elapsedMs,
-    messages: result.messages.map((m) => ({
-      id: m.id,
-      severity: String(m.severity).toUpperCase(),
-      path: m.location?.path ?? null,
-      line: m.location?.line ?? null,
-      message: m.message,
-    })),
-  };
-}
-
-// ---------------------------------------------------------------- Java runner
-
-/**
- * Java reports IDs with an underscore (`MED_015`); this port uses a hyphen
- * (`MED-015`). Every comparison below normalises to the hyphen form.
- */
-const normalizeId = (id) => id.replace(/_/g, '-');
-
-async function runJava(file, { kind, mode }) {
-  const args = [file, '--json', '-'];
-  if (opts.usage) args.push('-u');
-  if (opts.profile) args.push('--profile', opts.profile);
-
-  // Java refuses a non-.epub input without an explicit --mode, and every mode
-  // but `exp` also needs -v.
-  if (kind !== 'zipped') args.push('--mode', mode);
-  if (opts.version) args.push('-v', opts.version);
-  else if (kind === 'single') args.push('-v', '3.0');
-
-  let stdout;
-  try {
-    // Java exits 1 when it finds errors, which execFile treats as a failure;
-    // the JSON is still on stdout, so read it off the error object.
-    ({ stdout } = await execFileAsync('epubcheck', args, { maxBuffer: MAX_BUFFER }));
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      fail(
-        'the Java `epubcheck` CLI is not on PATH — `brew install epubcheck` (diff/corpus need it)',
-      );
-    }
-    if (typeof err.stdout !== 'string' || !err.stdout.trim()) throw err;
-    stdout = err.stdout;
-  }
-
-  const report = JSON.parse(stdout);
-  const c = report.checker;
-  return {
-    valid: c.nFatal === 0 && c.nError === 0,
-    counts: {
-      fatal: c.nFatal,
-      error: c.nError,
-      warning: c.nWarning,
-      info: c.nInfo ?? 0,
-      usage: c.nUsage,
-    },
-    version: report.publication?.ePubVersion ?? null,
-    messages: report.messages.map((m) => ({
-      id: normalizeId(m.ID),
-      severity: m.severity,
-      path: m.locations?.[0]?.path ?? null,
-      line: m.locations?.[0]?.line ?? null,
-      message: m.message,
-    })),
-  };
-}
-
-// -------------------------------------------------------------------- compare
-
-/**
- * Only FATAL/ERROR/WARNING count toward agreement — the metric PROJECT_STATUS
- * quotes. `--usage` widens the comparison to every severity, which is what you
- * want when debugging a specific message rather than measuring the corpus.
- */
-const SIGNIFICANT = new Set(['FATAL', 'ERROR', 'WARNING']);
-const counted = (severity) => opts.usage || SIGNIFICANT.has(severity);
-
-function tally(messages) {
-  const counts = new Map();
-  for (const m of messages) {
-    if (!counted(m.severity)) continue;
-    counts.set(m.id, (counts.get(m.id) ?? 0) + 1);
-  }
-  return counts;
-}
-
-function compare(ts, java) {
-  const a = tally(ts.messages);
-  const b = tally(java.messages);
-  const onlyTs = [];
-  const onlyJava = [];
-  for (const id of new Set([...a.keys(), ...b.keys()])) {
-    const delta = (a.get(id) ?? 0) - (b.get(id) ?? 0);
-    if (delta > 0) onlyTs.push(`${id}${delta > 1 ? ` x${String(delta)}` : ''}`);
-    if (delta < 0) onlyJava.push(`${id}${delta < -1 ? ` x${String(-delta)}` : ''}`);
-  }
-  // Validating under the wrong version family is the parity bug 0.6.3 fixed (an
-  // OEBPS 1.2 package checked as EPUB 3 turned 1 Java message into 12), and it
-  // can happen while the message IDs still line up. Only the *major* version is
-  // comparable: we report the version the OPF declares ("3.0") while Java
-  // reports the ruleset it applied ("3.3"), so an exact match never holds.
-  // Reported separately rather than folded into `exact`, which stays the
-  // ID-agreement metric PROJECT_STATUS quotes.
-  const tsVersion = ts.version ?? null;
-  const javaVersion = java.version ?? null;
-  const major = (v) => (v ? String(v).split('.')[0] : null);
-
-  return {
-    verdictMatch: ts.valid === java.valid,
-    versionMatch: major(tsVersion) === major(javaVersion),
-    tsVersion,
-    javaVersion,
-    exact: onlyTs.length === 0 && onlyJava.length === 0,
-    onlyTs: onlyTs.sort(),
-    onlyJava: onlyJava.sort(),
-  };
+async function bothSides(file, cache) {
+  const input = resolveInput(file, opts.mode);
+  return Promise.all([
+    runTs({ file, input, opts: runOptions(), useDist: opts.dist }),
+    runJava({ file, input, opts: runOptions(), cache }),
+  ]);
 }
 
 // --------------------------------------------------------------------- output
-
-const GREY = '\x1b[90m';
-const RED = '\x1b[31m';
-const YELLOW = '\x1b[33m';
-const GREEN = '\x1b[32m';
-const OFF = '\x1b[0m';
 
 const SEVERITY_COLOR = { FATAL: RED, ERROR: RED, WARNING: YELLOW };
 const severityColor = (s) => SEVERITY_COLOR[s] ?? GREY;
 
 function printMessages(result) {
-  for (const m of result.messages) {
+  // The engine always collects every severity, so the default view filters here.
+  const shown = result.messages.filter((m) => isCounted(m.severity, opts.usage));
+  for (const m of shown) {
     const where = m.path ? `${m.path}${m.line ? `:${String(m.line)}` : ''}` : '(no location)';
     console.log(
       `${severityColor(m.severity)}${m.severity.padEnd(7)}${OFF} ${m.id.padEnd(8)} ${GREY}${where}${OFF}  ${m.message}`,
@@ -325,43 +165,19 @@ function printMessages(result) {
   );
 }
 
-// -------------------------------------------------------------------- helpers
-
-async function findEpubs(dir) {
-  const out = [];
-  for (const entry of await readdir(dir, { withFileTypes: true, recursive: true })) {
-    if (entry.isFile() && entry.name.endsWith('.epub'))
-      out.push(join(entry.parentPath, entry.name));
-  }
-  return out.sort();
-}
-
-/** Java takes ~1.5s per book, so the corpus run is worth parallelising. */
-async function mapLimit(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (next < items.length) {
-        const i = next++;
-        results[i] = await fn(items[i], i);
-      }
-    }),
-  );
-  return results;
-}
-
 function usage() {
   console.error(
     `epubcheck-ts driver
 
   check   <path...>   validate via src/ (no build needed)
-  diff    <path...>   differential against Java EPUBCheck
+  diff    <path...>   differential against Java EPUBCheck (cached)
   corpus  <dir>       batch differential, prints agreement stats
   cli     <args...>   run the built CLI (needs \`npm run build\`)
 
 flags: --usage --dist --json --version <v> --profile <p> --mode <m>
-       --jobs <n> --limit <n>`,
+       --jobs <n> --limit <n> --no-cache --refresh
+
+For the committed baseline and the regression gate, use \`npm run parity:check\`.`,
   );
   process.exit(2);
 }
@@ -374,7 +190,12 @@ async function cmdCheck() {
   // fixtures take ~4s total), so a worker pool buys nothing and costs ordering.
   let bad = 0;
   for (const file of paths) {
-    const result = await runTs(file, resolveInput(file));
+    const result = await runTs({
+      file,
+      input: resolveInput(file, opts.mode),
+      opts: runOptions(),
+      useDist: opts.dist,
+    });
     if (!result.valid) bad++;
     if (opts.json) {
       console.log(JSON.stringify(result, null, 2));
@@ -388,12 +209,10 @@ async function cmdCheck() {
 
 async function cmdDiff() {
   if (!paths.length) usage();
-  // Unlike `check`, each item spends ~1.5s in a Java subprocess, so this runs
-  // through the same worker pool as `corpus`; mapLimit keeps results in order.
+  const cache = await makeCache();
   const compared = await mapLimit(paths, opts.jobs, async (file) => {
-    const input = resolveInput(file);
-    const [ts, java] = await Promise.all([runTs(file, input), runJava(file, input)]);
-    return { file, ts, java, cmp: compare(ts, java) };
+    const [ts, java] = await bothSides(file, cache);
+    return { file, ts, java, cmp: compare(ts, java, opts.usage) };
   });
 
   let mismatched = 0;
@@ -418,63 +237,34 @@ async function cmdDiff() {
       console.log(`  ${RED}version differs${OFF} ts=${cmp.tsVersion} java=${cmp.javaVersion}`);
     }
   }
+  if (cache) console.error(`${GREY}${cache.summary()}${OFF}`);
   process.exitCode = mismatched ? 1 : 0;
 }
 
 async function cmdCorpus() {
   const dir = paths[0] ?? join(ROOT, 'test/fixtures');
-  let files = await findEpubs(dir);
-  if (opts.limit) files = files.slice(0, opts.limit);
-  if (!files.length) fail(`no .epub files under ${dir}`);
-  console.error(`${files.length} fixtures, ${String(opts.jobs)} jobs...`);
+  let items = await packagedCorpus(dir);
+  if (opts.limit) items = items.slice(0, opts.limit);
+  if (!items.length) fail(`no .epub files under ${dir}`);
+  const cache = await makeCache();
+  console.error(`${items.length} fixtures, ${String(opts.jobs)} jobs...`);
 
-  const rows = await mapLimit(files, opts.jobs, async (file) => {
-    try {
-      const input = resolveInput(file);
-      const [ts, java] = await Promise.all([runTs(file, input), runJava(file, input)]);
-      return { file: relative(ROOT, file), ...compare(ts, java) };
-    } catch (err) {
-      // Triage is the whole point of `corpus`, and a truncated one-line message
-      // makes a JSON.parse of clipped Java output look like a validator crash.
-      return {
-        file: relative(ROOT, file),
-        failed: { name: err.name, code: err.code, message: err.message },
-      };
-    }
-  });
-
-  const ok = rows.filter((r) => !r.failed);
-  const verdict = ok.filter((r) => r.verdictMatch).length;
-  const exact = ok.filter((r) => r.exact).length;
-  const pct = (n) => (ok.length ? `${((n / ok.length) * 100).toFixed(1)}%` : 'n/a');
+  const req = {
+    opts: runOptions(),
+    useDist: opts.dist,
+    includeUsage: opts.usage,
+    cache,
+  };
+  const rows = await mapLimit(items, opts.jobs, (item) => compareItem(item, req));
 
   if (opts.json) {
-    console.log(JSON.stringify({ total: rows.length, verdict, exact, rows }, null, 2));
+    printJson(rows);
     return;
   }
-
-  for (const r of rows) {
-    if (r.failed) {
-      const { name, code, message } = r.failed;
-      const label = [name, code].filter(Boolean).join('/');
-      console.log(`${RED}CRASH${OFF}  ${r.file}  ${label}: ${message.split('\n')[0]}`);
-    } else if (!r.exact || !r.versionMatch) {
-      const bits = [];
-      if (r.onlyTs.length) bits.push(`+ts ${r.onlyTs.join(',')}`);
-      if (r.onlyJava.length) bits.push(`+java ${r.onlyJava.join(',')}`);
-      if (!r.versionMatch) bits.push(`version ts=${r.tsVersion} java=${r.javaVersion}`);
-      const flag = r.verdictMatch ? `${YELLOW}DIFF ${OFF}` : `${RED}VERDICT${OFF}`;
-      console.log(`${flag} ${r.file}  ${GREY}${bits.join('  ')}${OFF}`);
-    }
-  }
-  const crashed = rows.length - ok.length;
-  console.log(
-    `\n${String(ok.length)} compared, ${String(crashed)} crashed\n` +
-      `verdict agreement      ${pct(verdict)}  (${String(verdict)}/${String(ok.length)})\n` +
-      `error/warning ID exact ${pct(exact)}  (${String(exact)}/${String(ok.length)})`,
-  );
+  printDisagreements(rows);
+  printTotals(rows, cache ? cache.summary() : 'cache: disabled', scopeOf(opts.usage));
   // check/diff gate on their result; corpus should too, or CI cannot use it.
-  process.exitCode = crashed ? 1 : 0;
+  process.exitCode = partition(rows).failed.length ? 1 : 0;
 }
 
 async function cmdCli() {

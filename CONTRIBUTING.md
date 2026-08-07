@@ -83,6 +83,21 @@ describe('ZipReader', () => {
 - **Use `it.skip`** only for features that are pending/unimplemented. Skipped tests are a backlog, not a workaround.
 - **The only exception** for changing e2e test behaviour vs the original Java test is when a behavioural mismatch is caused by an inherent limitation in our TypeScript dependencies (e.g., libxml2-wasm XPath, fflate ZIP deduplication, css-tree forgiving parsing). In that case, document the reason in the skip annotation and in `PROJECT_STATUS.md`.
 
+### Parity Testing (the differential)
+
+The suite cannot see the two failure modes that matter most: a scenario ported with a subtly wrong expectation passes forever, and a check that fires where Java stays silent breaks no test at all. The harness in `scripts/parity/` catches both by running Java EPUBCheck over the same bytes and diffing.
+
+```bash
+npm run parity          # measure the packaged corpus
+npm run parity:check    # fail if any fixture regressed against the baseline
+npm run parity:update   # rewrite the baseline after an intended change
+```
+
+- **If your change moves parity, `npm run parity:update` belongs in the same commit.** The diff to `test/parity/baseline.json` is the evidence; a reviewer can see which fixtures moved and in which direction.
+- **`parity:check` fails only on regressions**, never on improvements — it tells you to run `parity:update` instead.
+- **Java's answers are committed** under `test/parity/java/`, keyed by content, so the gate needs no JVM and a warm run takes seconds. Editing a fixture invalidates its entry automatically; you need Java on PATH only to re-measure what changed.
+- **Never hand-edit `test/parity/`.** Both the baseline and the cache are generated; editing either fakes the measurement the gate exists to make.
+
 ---
 
 ## Porting from Java
@@ -169,6 +184,7 @@ try {
 - **Bug fix or logic change** → If it resolves a known issue or unblocks skipped tests, update "Known Issues" and "Skipped Tests" sections.
 - **New message ID added** → Update the "Message IDs" counts.
 - **New dependency limitation discovered** → Add to "Known Issues" with affected test references.
+- **Agreement with Java moved** → Re-run `npm run parity` and update the "Measured Parity" tables from its output. Commit the regenerated `test/parity/baseline.json` alongside. Quote measured figures, never estimates.
 
 Do **not** duplicate status information in other docs.
 
@@ -177,6 +193,7 @@ Do **not** duplicate status information in other docs.
 ## Pull Request Process
 
 1. Ensure all tests pass
-2. Update `PROJECT_STATUS.md` if applicable (see above)
-3. Add a clear description of changes
-4. Reference any related issues
+2. Run `npm run parity:check`; if it reports improvements, commit a regenerated baseline
+3. Update `PROJECT_STATUS.md` if applicable (see above)
+4. Add a clear description of changes
+5. Reference any related issues

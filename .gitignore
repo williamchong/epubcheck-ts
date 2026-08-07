@@ -19,6 +19,12 @@ test/fixtures/real/
 # Test coverage
 coverage/
 
+# Java EPUBCheck answers for the standalone corpus. Unlike test/parity/java/,
+# which is committed so CI can gate parity without a JVM, this one is only
+# reachable with ../epubcheck checked out as a sibling — anyone who can run it
+# can regenerate it, so vendoring ~1286 more reports buys nothing.
+test/parity/java-standalone/
+
 # Real-world EPUB cache, fetched on demand by `npm run fetch:real-epubs`
 test/fixtures/real/
 
